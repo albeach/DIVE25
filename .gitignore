@@ -1,0 +1,25 @@
+# Ignore system generated files on Mac
+
+.DS_Store
+
+
+
+# Ignore build artifacts
+
+*.log
+
+build/
+
+
+
+# Ignore temporary files
+
+*.tmp
+
+
+
+# Ignore sensitive configuration files
+
+.env
+
+.code-workspace
