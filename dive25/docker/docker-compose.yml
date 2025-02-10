@@ -33,7 +33,7 @@ services:
     volumes:
       - ./licenses:/opt/in/licenses
       - ./certificates:/opt/in/certificates
-      - ./server-profiles/pingaccess:/opt/in
+      - ./server-profiles/pingaccess/instance:/opt/in/instance
     ports:
       - "9000:9000"
       - "3000:3000"
@@ -54,7 +54,7 @@ services:
       - PD_LICENSE_FILE=/opt/in/licenses/pingdirectory.lic
     volumes:
       - ./licenses:/opt/in/licenses
-      - ./server-profiles/pingdirectory:/opt/in/instance
+      - ./server-profiles/pingdirectory/instance:/opt/in/instance
       - ./certificates:/opt/in/certificates
       - pingdirectory-out:/opt/out
     ports:
