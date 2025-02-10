@@ -129,7 +129,6 @@ setup_docker() {
     
     # Copy docker-compose file
     cat > docker-compose.yml << EOL
-version: '3.8'
 # ... (previous docker-compose content) ...
 EOL
 
