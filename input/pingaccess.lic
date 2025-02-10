@@ -1,0 +1,12 @@
+ID=00757626
+Product=PingAccess
+Version=8.2
+EnforcementType=3
+Tier=Free
+IssueDate=2025-01-29
+ExpirationDate=2025-03-01
+GracePeriod=1
+DeploymentMethod=Traditional
+Name=PingAccess-8.2-Development
+SignCode=FF03
+Signature=302D02150091115F807DDD5A4B7BD87E069F1B6455E92A154002146419FA54C07D0BC299064BE8786DCE61327CD6DD

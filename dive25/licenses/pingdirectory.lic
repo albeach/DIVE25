@@ -1,0 +1,12 @@
+ID=00755094
+Product=PingDirectory
+Version=10.2.0.0
+EnforcementType=3
+Tier=Free
+IssueDate=2025-01-21
+ExpirationDate=2025-04-30
+GracePeriod=1
+DeploymentMethod=Traditional
+Name=PingDirectory-10.2.0.0-Development
+SignCode=FF03
+Signature=302C02142280335A1BA552F81589DB551BBFDE79F2C3A1D002146E1C7A4E9CB4D5BE6FF56FD3BF20C9769ADA2FA0

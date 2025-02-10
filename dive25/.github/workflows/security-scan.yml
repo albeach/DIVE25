@@ -1,0 +1,40 @@
+# .github/workflows/security-scan.yml
+name: Security Scanning
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Daily scan
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  federation-security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: SAML Configuration Analysis
+        uses: ./scripts/security/saml-config-analyzer
+        with:
+          config-path: './src/config/pingfederate'
+
+      - name: OAuth Security Scan
+        uses: ./scripts/security/oauth-security-scanner
+        with:
+          client-configs: './src/config/oauth'
+
+      - name: Federation Endpoint Security
+        uses: ./scripts/security/federation-endpoint-scanner
+        with:
+          api-specs: './src/openapi'
+
+      - name: Container Security Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'dive25-api:latest'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: 'CRITICAL,HIGH'

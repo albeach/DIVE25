@@ -1,0 +1,14 @@
+ID=00735459
+WSTrustSTS=true
+OAuth=true
+SaasProvisioning=true
+Product=PingFederate
+Version=12.1
+EnforcementType=3
+Tier=Free
+IssueDate=2024-11-21
+ExpirationDate=2025-03-01
+GracePeriod=1
+DeploymentMethod=Traditional
+SignCode=FF0F
+Signature=302C0214469A8FC86A4123451531600F332EFBDCA8BC9F58021432D21CF52CB6DBBADC0FD803DEDB1E1114D5D377

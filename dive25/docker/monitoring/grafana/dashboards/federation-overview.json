@@ -1,0 +1,63 @@
+// docker/monitoring/grafana/dashboards/federation-overview.json
+{
+    "dashboard": {
+      "id": null,
+      "title": "Federation Overview",
+      "tags": ["federation", "dive25"],
+      "timezone": "browser",
+      "panels": [
+        {
+          "title": "Authentication Success Rate",
+          "type": "gauge",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 0
+          },
+          "targets": [
+            {
+              "expr": "rate(federation_auth_attempts_total[5m] - federation_auth_failures_total[5m]) / rate(federation_auth_attempts_total[5m])",
+              "refId": "A"
+            }
+          ],
+          "options": {
+            "thresholds": [
+              { "value": 0.9, "color": "red" },
+              { "value": 0.95, "color": "yellow" },
+              { "value": 0.98, "color": "green" }
+            ]
+          }
+        },
+        {
+          "title": "Partner Health Status",
+          "type": "table",
+          "gridPos": {
+            "h": 8,
+            "w": 16,
+            "x": 8,
+            "y": 0
+          },
+          "targets": [
+            {
+              "expr": "federation_partner_health",
+              "instant": true,
+              "refId": "A"
+            }
+          ],
+          "transformations": [
+            {
+              "type": "value_mapping",
+              "options": {
+                "mappings": [
+                  { "value": "0", "text": "Down", "color": "red" },
+                  { "value": "1", "text": "Degraded", "color": "yellow" },
+                  { "value": "2", "text": "Healthy", "color": "green" }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }

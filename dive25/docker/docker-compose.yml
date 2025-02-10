@@ -1,0 +1,79 @@
+# docker/docker-compose.yml
+services:
+  pingfederate:
+    container_name: pingfederate
+    image: pingidentity/pingfederate:12.2.0-latest
+    env_file:
+      - ../.env
+    environment:
+      - PING_IDENTITY_ACCEPT_EULA=YES
+      - PING_IDENTITY_DEVOPS_USER=${PING_IDENTITY_DEVOPS_USER}
+      - PING_IDENTITY_DEVOPS_KEY=${PING_IDENTITY_DEVOPS_KEY}
+      - PING_IDENTITY_PASSWORD=2FederateM0re
+      - PF_ADMIN_USER_PASSWORD=2FederateM0re
+      - PF_LICENSE_FILE=/opt/in/licenses/pingfederate.lic
+    volumes:
+      - ../licenses:/opt/in/licenses
+      - ../server-profiles/pingfederate/instance:/opt/in/instance
+      - ../certificates:/opt/in/certificates
+      - pingfederate-out:/opt/out
+    ports:
+      - "9999:9999"
+      - "9031:9031"
+    networks:
+      - dive25-net
+
+  pingaccess:
+    container_name: pingaccess
+    image: pingidentity/pingaccess:8.2.0-latest
+    environment:
+      - PING_IDENTITY_ACCEPT_EULA=YES
+      - PING_IDENTITY_DEVOPS_USER=${PING_IDENTITY_DEVOPS_USER}
+      - PING_IDENTITY_DEVOPS_KEY=${PING_IDENTITY_DEVOPS_KEY}
+      - PING_IDENTITY_PASSWORD=2FederateM0re
+      - PA_ADMIN_PASSWORD_INITIAL=2FederateM0re
+      - PA_ADMIN_USER_PASSWORD=2FederateM0re
+      - PA_LICENSE_FILE=/opt/in/licenses/pingaccess.lic
+    env_file:
+      - ../.env
+    volumes:
+      - ../licenses:/opt/in/licenses
+      - ../certificates:/opt/in/certificates
+      - pingaccess-out:/opt/out
+    ports:
+      - "9000:9000"
+      - "3000:3000"
+    networks:
+      - dive25-net
+
+  pingdirectory:
+    container_name: pingdirectory
+    image: pingidentity/pingdirectory:10.2.0.0-latest
+    env_file:
+      - ../.env
+    environment:
+      - PING_IDENTITY_ACCEPT_EULA=YES
+      - PING_IDENTITY_DEVOPS_USER=${PING_IDENTITY_DEVOPS_USER}
+      - PING_IDENTITY_DEVOPS_KEY=${PING_IDENTITY_DEVOPS_KEY}
+      - PING_IDENTITY_PASSWORD=2FederateM0re
+      - PD_ADMIN_USER_PASSWORD=2FederateM0re
+      - PD_LICENSE_FILE=/opt/in/licenses/pingdirectory.lic
+    volumes:
+      - ../licenses:/opt/in/licenses
+      - ../server-profiles/pingdirectory:/opt/in/instance
+      - ../certificates:/opt/in/certificates
+      - pingdirectory-out:/opt/out
+    ports:
+      - "1636:636"
+      - "1389:389"
+    networks:
+      - dive25-net
+
+volumes:
+  pingfederate-out:
+  pingaccess-out:
+  pingdirectory-out:
+
+networks:
+  dive25-net:
+    driver: bridge

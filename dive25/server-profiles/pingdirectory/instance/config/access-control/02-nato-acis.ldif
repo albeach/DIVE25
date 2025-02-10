@@ -1,0 +1,4 @@
+dn: cn=Access Control Handler,cn=config
+changetype: modify
+add: ds-cfg-global-aci
+ds-cfg-global-aci: (targetattr="clearanceLevel || countryOfAffiliation || coiTags || lacvCode")(version 3.0; acl "Allow PingFederate to read NATO attributes"; allow(read,search,compare) userdn="ldap:///cn=pingfederate,cn=Root DNs,cn=config";)
