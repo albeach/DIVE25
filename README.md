@@ -1,4 +1,3 @@
-```markdown
 # DIVE25 Deployment Runbooks
 
 ## Table of Contents
@@ -264,4 +263,3 @@ open https://grafana.dive25.com/d/federation-overview
 - Slack: #dive25-support
 - Email: support@dive25.com
 - Documentation: https://docs.dive25.com
-```
