@@ -6,7 +6,6 @@ services:
       - "9031:9031"  # Runtime port
     environment:
       - PF_LOG_LEVEL=DEBUG
-      - SERVER_PROFILE_URL=https://github.com/your-org/dive25.git
       - SERVER_PROFILE_PATH=server-profiles/pingfederate
       - SERVER_PROFILE_BRANCH=develop
 
@@ -17,7 +16,6 @@ services:
       - "3000:3000"  # Runtime port
     environment:
       - PA_LOG_LEVEL=DEBUG
-      - SERVER_PROFILE_URL=https://github.com/your-org/dive25.git
       - SERVER_PROFILE_PATH=server-profiles/pingaccess
       - SERVER_PROFILE_BRANCH=develop
 
@@ -27,7 +25,5 @@ services:
       - "1636:636"   # LDAPS
       - "1389:389"   # LDAP
     environment:
-      - PD_LOG_LEVEL=DEBUG
-      - SERVER_PROFILE_URL=https://github.com/your-org/dive25.git
       - SERVER_PROFILE_PATH=server-profiles/pingdirectory
       - SERVER_PROFILE_BRANCH=develop

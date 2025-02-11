@@ -1,0 +1,199 @@
+# docker-compose.yml
+
+# Common environment variables shared across services
+x-common-variables: &common-variables
+  PING_IDENTITY_ACCEPT_EULA: "YES"
+  PING_IDENTITY_DEVOPS_USER: ${PING_IDENTITY_DEVOPS_USER}
+  PING_IDENTITY_DEVOPS_KEY: ${PING_IDENTITY_DEVOPS_KEY}
+  PING_IDENTITY_PASSWORD: "2FederateM0re"
+
+services:
+  # PingFederate handles federation and SSO
+  pingfederate:
+    image: pingidentity/pingfederate:12.2.0-latest
+    environment:
+      <<: *common-variables
+      PF_ADMIN_USER_PASSWORD: "2FederateM0re"
+      PF_LOG_LEVEL: "INFO"
+    volumes:
+      - ./licenses:/opt/in/licenses
+      - ./server-profiles/pingfederate/instance:/opt/in/instance
+      - ./certificates:/opt/in/certificates
+      - pingfederate-out:/opt/out
+    ports:
+      - "9999:9999"  # Admin console
+      - "9031:9031"  # Runtime port
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/out/instance/bin/status.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - dive25-net
+
+  # PingAccess provides secure gateway and access control
+  pingaccess:
+    image: pingidentity/pingaccess:8.2.0-latest
+    environment:
+      <<: *common-variables
+      PA_ADMIN_PASSWORD_INITIAL: "2FederateM0re"
+    volumes:
+      - ./licenses:/opt/in/licenses
+      - ./server-profiles/pingaccess/instance:/opt/in/instance
+      - ./certificates:/opt/in/certificates
+      - pingaccess-out:/opt/out
+    ports:
+      - "9000:9000"  # Admin console
+      - "3000:3000"  # Runtime port
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/out/instance/bin/status.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - dive25-net
+
+  # PingDirectory stores user attributes and organizational data
+  pingdirectory:
+    image: pingidentity/pingdirectory:10.2.0.0-latest
+    environment:
+      <<: *common-variables
+      PD_ADMIN_USER_PASSWORD: "2FederateM0re"
+    volumes:
+      - ./licenses:/opt/in/licenses
+      - ./server-profiles/pingdirectory/instance:/opt/in/instance
+      - ./certificates:/opt/in/certificates
+      - pingdirectory-out:/opt/out
+    ports:
+      - "1636:636"  # LDAPS
+      - "1389:389"  # LDAP
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/out/instance/bin/status.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - dive25-net
+
+  # WordPress frontend for document access
+  wordpress:
+    image: wordpress:latest
+    depends_on:
+      - db
+      - pingaccess
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: ${WP_DB_PASSWORD}
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_PROXY_HOST', 'pingaccess');
+        define('WP_PROXY_PORT', '3000');
+        define('FORCE_SSL_ADMIN', true);
+    volumes:
+      - wordpress_data:/var/www/html
+      - ./wordpress/themes/dive25:/var/www/html/wp-content/themes/dive25
+      - ./wordpress/plugins/dive25-sso:/var/www/html/wp-content/plugins/dive25-sso
+    networks:
+      - dive25-net
+
+  # MySQL database for WordPress
+  db:
+    image: mysql:5.7
+    environment:
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wordpress
+      MYSQL_PASSWORD: ${WP_DB_PASSWORD}
+      MYSQL_RANDOM_ROOT_PASSWORD: '1'
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - dive25-net
+
+  # MongoDB for document metadata storage
+  mongodb:
+    image: mongo:latest
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    volumes:
+      - mongodb_data:/data/db
+      - ./mongo-init:/docker-entrypoint-initdb.d
+    ports:
+      - "27017:27017"
+    networks:
+      - dive25-net
+
+  # Open Policy Agent for ABAC decisions
+  opa:
+    image: openpolicyagent/opa:latest
+    volumes:
+      - ./src/policies:/policies
+    ports:
+      - "8181:8181"
+    command:
+      - "run"
+      - "--server"
+      - "--log-level=debug"
+      - "--ignore=.*"
+      - "/policies"
+    networks:
+      - dive25-net
+
+  # Node.js backend API
+  api:
+    build:
+      context: ./src/backend
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      MONGO_URI: mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@mongodb:27017
+      OPA_URL: http://opa:8181
+    volumes:
+      - ./src/backend:/app
+      - /app/node_modules
+    ports:
+      - "3001:3001"
+    depends_on:
+      - mongodb
+      - opa
+    networks:
+      - dive25-net
+
+  # Prometheus for monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./docker/monitoring/prometheus:/etc/prometheus
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - dive25-net
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    volumes:
+      - ./docker/monitoring/grafana:/etc/grafana
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+    ports:
+      - "3002:3000"
+    networks:
+      - dive25-net
+
+networks:
+  dive25-net:
+    driver: bridge
+
+volumes:
+  pingfederate-out:
+  pingaccess-out:
+  pingdirectory-out:
+  wordpress_data:
+  db_data:
+  mongodb_data:
+  prometheus_data:
+  grafana_data:

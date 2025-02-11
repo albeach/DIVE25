@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<module id="com.pingidentity.module" version="1.0.0">
-    <contribution configuration-id="security-properties">
-        <property name="addFrameOptionsHeader" value="true"/>
-        <property name="frameOptionsValue" value="SAMEORIGIN"/>
-        <property name="addContentTypeHeader" value="true"/>
-        <property name="addXContentTypeHeader" value="true"/>
-    </contribution>
-</module>

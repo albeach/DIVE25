@@ -1,73 +1,138 @@
-# docker/docker-compose.yml
+x-common-variables: &common-variables
+  PING_IDENTITY_ACCEPT_EULA: "YES"
+  PING_IDENTITY_DEVOPS_USER: ${PING_IDENTITY_DEVOPS_USER}
+  PING_IDENTITY_DEVOPS_KEY: ${PING_IDENTITY_DEVOPS_KEY}
+  PING_IDENTITY_PASSWORD: "2FederateM0re"
+
 services:
-  pingfederate:
-    container_name: pingfederate
+  pingfederate-1:
     image: pingidentity/pingfederate:12.2.0-latest
-    env_file:
-      - ../.env
     environment:
-      - PING_IDENTITY_ACCEPT_EULA=YES
-      - PING_IDENTITY_DEVOPS_USER=${PING_IDENTITY_DEVOPS_USER}
-      - PING_IDENTITY_DEVOPS_KEY=${PING_IDENTITY_DEVOPS_KEY}
-      - PING_IDENTITY_PASSWORD=2FederateM0re
-      - PF_ADMIN_USER_PASSWORD=2FederateM0re
-      - PF_LICENSE_FILE=/opt/in/licenses/pingfederate.lic
+      <<: *common-variables
+      PF_ADMIN_USER_PASSWORD: "2FederateM0re"
     volumes:
       - ./licenses:/opt/in/licenses
-      - ./server-profiles/pingfederate/instance:/opt/in/instance
+      - ./server-profiles/pingfederate/instance/:/tmp/server-profile/server-profiles/pingfederate/
       - ./certificates:/opt/in/certificates
-      - pingfederate-out:/opt/out
+      - pingfederate-out-1:/opt/out
+    networks:
+      - dive25-net
     ports:
       - "9999:9999"
       - "9031:9031"
+    tmpfs:
+      - /tmp:exec,mode=1777
+
+  pingfederate-2:
+    image: pingidentity/pingfederate:12.2.0-latest
+    environment:
+      <<: *common-variables
+      PF_ADMIN_USER_PASSWORD: "2FederateM0re"
+    volumes:
+      - ./licenses:/opt/in/licenses
+      - ./server-profiles/pingfederate/instance/:/tmp/server-profile/server-profiles/pingfederate/
+      - ./certificates:/opt/in/certificates
+      - pingfederate-out-2:/opt/out
     networks:
       - dive25-net
+    ports:
+      - "9998:9999"
+      - "9032:9031"
+    tmpfs:
+      - /tmp:exec,mode=1777
 
-  pingaccess:
-    container_name: pingaccess
+  pingaccess-1:
     image: pingidentity/pingaccess:8.2.0-latest
     environment:
-      - PING_IDENTITY_ACCEPT_EULA=YES
-      - PING_IDENTITY_DEVOPS_USER=${PING_IDENTITY_DEVOPS_USER}
-      - PING_IDENTITY_DEVOPS_KEY=${PING_IDENTITY_DEVOPS_KEY}
+      <<: *common-variables
+      PA_ADMIN_PASSWORD_INITIAL: "2FederateM0re"
+      PA_ADMIN_USER_PASSWORD: "2FederateM0re"
     volumes:
       - ./licenses:/opt/in/licenses
+      - ./server-profiles/pingaccess/instance/:/tmp/server-profile/server-profiles/pingaccess/
       - ./certificates:/opt/in/certificates
-      - ./server-profiles/pingaccess/instance:/opt/in/instance
+      - pingaccess-out-1:/opt/out
+    networks:
+      - dive25-net
     ports:
       - "9000:9000"
-      - "3000:3000"
-    networks:
-      - dive25-net
+      - "3001:3000"
+    tmpfs:
+      - /tmp:exec,mode=1777
 
-  pingdirectory:
-    container_name: pingdirectory
-    image: pingidentity/pingdirectory:10.2.0.0-latest
-    env_file:
-      - ../.env
+  pingaccess-2:
+    image: pingidentity/pingaccess:8.2.0-latest
     environment:
-      - PING_IDENTITY_ACCEPT_EULA=YES
-      - PING_IDENTITY_DEVOPS_USER=${PING_IDENTITY_DEVOPS_USER}
-      - PING_IDENTITY_DEVOPS_KEY=${PING_IDENTITY_DEVOPS_KEY}
-      - PING_IDENTITY_PASSWORD=2FederateM0re
-      - PD_ADMIN_USER_PASSWORD=2FederateM0re
-      - PD_LICENSE_FILE=/opt/in/licenses/pingdirectory.lic
+      <<: *common-variables
+      PA_ADMIN_PASSWORD_INITIAL: "2FederateM0re"
+      PA_ADMIN_USER_PASSWORD: "2FederateM0re"
     volumes:
       - ./licenses:/opt/in/licenses
-      - ./server-profiles/pingdirectory/instance:/opt/in/instance
+      - ./server-profiles/pingaccess/instance/:/tmp/server-profile/server-profiles/pingaccess/
       - ./certificates:/opt/in/certificates
-      - pingdirectory-out:/opt/out
-    ports:
-      - "1636:636"
-      - "1389:389"
+      - pingaccess-out-2:/opt/out
     networks:
       - dive25-net
+    ports:
+      - "9001:9000"
+      - "3002:3000"
+    tmpfs:
+      - /tmp:exec,mode=1777
 
-volumes:
-  pingfederate-out:
-  pingaccess-out:
-  pingdirectory-out:
+  pingdirectory-1:
+    image: pingidentity/pingdirectory:10.2.0.0-latest
+    environment:
+      <<: *common-variables
+      PD_ADMIN_USER_PASSWORD: "2FederateM0re"
+    volumes:
+      - ./licenses:/opt/in/licenses
+      - ./server-profiles/pingdirectory/instance/:/tmp/server-profile/server-profiles/pingdirectory/
+      - ./certificates:/opt/in/certificates
+      - pingdirectory-out-1:/opt/out
+    networks:
+      - dive25-net
+    ports:
+      - "1389:389"
+      - "1636:636"
+    tmpfs:
+      - /tmp:exec,mode=1777
+
+  pingdirectory-2:
+    image: pingidentity/pingdirectory:10.2.0.0-latest
+    environment:
+      <<: *common-variables
+      PD_ADMIN_USER_PASSWORD: "2FederateM0re"
+    volumes:
+      - ./licenses:/opt/in/licenses
+      - ./server-profiles/pingdirectory/instance/:/tmp/server-profile/server-profiles/pingdirectory/
+      - ./certificates:/opt/in/certificates
+      - pingdirectory-out-2:/opt/out
+    networks:
+      - dive25-net
+    ports:
+      - "1390:389"
+      - "1637:636"
+    tmpfs:
+      - /tmp:exec,mode=1777
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3050:3000"
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
 
 networks:
   dive25-net:
     driver: bridge
+
+volumes:
+  pingfederate-out-1:
+  pingfederate-out-2:
+  pingaccess-out-1:
+  pingaccess-out-2:
+  pingdirectory-out-1:
+  pingdirectory-out-2:
