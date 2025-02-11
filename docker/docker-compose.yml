@@ -11,15 +11,20 @@ services:
       - PING_IDENTITY_DEVOPS_USER=${PING_IDENTITY_DEVOPS_USER}
       - PING_IDENTITY_DEVOPS_KEY=${PING_IDENTITY_DEVOPS_KEY}
       - PING_IDENTITY_PASSWORD=2FederateM0re
+      - PA_ADMIN_PASSWORD_INITIAL=2FederateM0re
       - PF_ADMIN_USER_PASSWORD=2FederateM0re
-      - SERVER_PROFILE_URL=https://${PING_IDENTITY_DEVOPS_USER}:${PING_IDENTITY_DEVOPS_KEY}@github.com/albeach/DIVE25.git
     volumes:
       - ./licenses:/opt/in/licenses
-      - ./server-profiles/pingfederate/instance:/opt/in/instance
+      - ./server-profiles/pingfederate/instance/:/tmp/server-profile/server-profiles/pingfederate/
       - ./certificates:/opt/in/certificates
       - pingfederate-out:/opt/out
+    tmpfs:
+      - /tmp:exec,mode=1777
     networks:
       - dive25-net
+    ports:
+      - "9999:9999"  # Admin console
+      - "9031:9031"  # Runtime port - changed from 9031
     healthcheck:
       test: ["CMD-SHELL", "/opt/out/instance/bin/status.sh"]
       interval: 30s
@@ -35,13 +40,16 @@ services:
       - PING_IDENTITY_ACCEPT_EULA=YES
       - PING_IDENTITY_DEVOPS_USER=${PING_IDENTITY_DEVOPS_USER}
       - PING_IDENTITY_DEVOPS_KEY=${PING_IDENTITY_DEVOPS_KEY}
+      - PING_IDENTITY_PASSWORD=2FederateM0re
       - PA_ADMIN_PASSWORD_INITIAL=2FederateM0re
-      - SERVER_PROFILE_URL=https://${PING_IDENTITY_DEVOPS_USER}:${PING_IDENTITY_DEVOPS_KEY}@github.com/albeach/DIVE25.git
+      - PA_ADMIN_USER_PASSWORD=2FederateM0re
     volumes:
       - ./licenses:/opt/in/licenses
-      - ./server-profiles/pingaccess/instance:/opt/in/instance
+      - ./server-profiles/pingaccess/instance/:/tmp/server-profile/server-profiles/pingaccess/
       - ./certificates:/opt/in/certificates
       - pingaccess-out:/opt/out
+    tmpfs:
+      - /tmp:exec,mode=1777
     networks:
       - dive25-net
     healthcheck:
@@ -52,17 +60,21 @@ services:
 
   pingdirectory:
     image: pingidentity/pingdirectory:10.2.0.0-latest
+    ports:
+      - "1636:636"
+      - "1389:389"
     environment:
       - PING_IDENTITY_ACCEPT_EULA=YES
       - PING_IDENTITY_DEVOPS_USER=${PING_IDENTITY_DEVOPS_USER}
       - PING_IDENTITY_DEVOPS_KEY=${PING_IDENTITY_DEVOPS_KEY}
       - PD_ADMIN_USER_PASSWORD=2FederateM0re
-      - SERVER_PROFILE_URL=https://${PING_IDENTITY_DEVOPS_USER}:${PING_IDENTITY_DEVOPS_KEY}@github.com/albeach/DIVE25.git
     volumes:
       - ./licenses:/opt/in/licenses
-      - ./server-profiles/pingdirectory/instance:/opt/in/instance
+      - ./server-profiles/pingdirectory/instance/:/tmp/server-profile/server-profiles/pingdirectory/
       - ./certificates:/opt/in/certificates
       - pingdirectory-out:/opt/out
+    tmpfs:
+      - /tmp:exec,mode=1777
     networks:
       - dive25-net
     healthcheck:
@@ -72,8 +84,14 @@ services:
       retries: 3
   
   grafana:
+    image: grafana/grafana:latest
     ports:
-      - "3002:3000"  # Changed from 3000 to avoid conflict
+      - "3050:3000"  # Changed from 3000 to avoid conflict
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
 
 networks:
   dive25-net:

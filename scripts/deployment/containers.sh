@@ -152,16 +152,6 @@ EOL
         -f "${SCRIPT_DIR}/docker/docker-compose.${environment}.yml" \
         down --remove-orphans
 
-# Docker authentication
-docker logout
-sleep 2
-echo "${PING_IDENTITY_DEVOPS_KEY}" | docker login -u "${PING_IDENTITY_DEVOPS_USER}" --password-stdin docker.io
-
-if [ $? -ne 0 ]; then
-    log "ERROR" "Failed to authenticate with Docker Hub. Check your Ping Identity DevOps credentials."
-    exit 1
-fi
-
     # Pull and start containers
     if [[ "$(uname)" == "Darwin" ]]; then
         # MacOS: run without sudo

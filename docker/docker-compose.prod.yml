@@ -11,11 +11,8 @@ services:
           memory: 2G
     environment:
       - PF_LOG_LEVEL=INFO
-      - SERVER_PROFILE_URL=https://github.com/your-org/dive25.git
-      - SERVER_PROFILE_PATH=server-profiles/pingfederate
-      - SERVER_PROFILE_BRANCH=main
     ports:
-      - "443:9031"     # Runtime port (SSL)
+      - "9031:9031"     # Runtime port (SSL)
       - "9999:9999"    # Admin console (internal only)
 
   pingaccess:
@@ -30,11 +27,8 @@ services:
           memory: 1G
     environment:
       - PA_LOG_LEVEL=INFO
-      - SERVER_PROFILE_URL=https://github.com/your-org/dive25.git
-      - SERVER_PROFILE_PATH=server-profiles/pingaccess
-      - SERVER_PROFILE_BRANCH=main
     ports:
-      - "3000:3000"    # Runtime port
+      - "3001:3000"    # Runtime port
       - "9000:9000"    # Admin console (internal only)
 
   pingdirectory:
@@ -49,12 +43,9 @@ services:
           memory: 2G
     environment:
       - PD_LOG_LEVEL=INFO
-      - SERVER_PROFILE_URL=https://github.com/your-org/dive25.git
-      - SERVER_PROFILE_PATH=server-profiles/pingdirectory
-      - SERVER_PROFILE_BRANCH=main
     ports:
-      - "636:636"      # LDAPS
-      - "389:389"      # LDAP
+      - "1636:636"      # LDAPS
+      - "1389:389"      # LDAP
 
   # Production-only services
   prometheus:
@@ -75,6 +66,6 @@ services:
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
     ports:
-      - "3000:3001"
+      - "3050:3000"
     networks:
       - dive25-net

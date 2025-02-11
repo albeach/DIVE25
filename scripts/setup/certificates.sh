@@ -13,14 +13,17 @@ CERT_EMAIL="admin@dive25.com"
 # Create and set permissions for certificate directories
 setup_certificate_directories() {
     # Create main certificate directory if it doesn't exist
-    mkdir -p "${CERT_DIR}"
-    chmod 755 "${CERT_DIR}"
+    sudo mkdir -p "${CERT_DIR}"
+    sudo chmod 755 "${CERT_DIR}"
 
     # Create and set permissions for environment-specific directories
     for env in dev prod; do
-        mkdir -p "${CERT_DIR}/${env}"
-        chmod 755 "${CERT_DIR}/${env}"
+        sudo mkdir -p "${CERT_DIR}/${env}"
+        sudo chmod 755 "${CERT_DIR}/${env}"
     done
+    
+    # Change ownership to your user
+    sudo chown -R $(whoami) "${CERT_DIR}"
 }
 
 # Call this function before any certificate operations

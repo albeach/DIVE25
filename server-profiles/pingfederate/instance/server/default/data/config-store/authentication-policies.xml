@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pol:authentication-policies xmlns:pol="http://www.pingidentity.com/2006/04/authentication-policies">
+    <pol:policy name="NATO Authentication">
+        <pol:description>Authentication policy for NATO federation</pol:description>
+        <pol:steps>
+            <pol:step>
+                <pol:type>AUTHENTICATION</pol:type>
+                <pol:authenticator>IDP</pol:authenticator>
+            </pol:step>
+        </pol:steps>
+        <pol:failure-handling>
+            <pol:mode>RESTART_AUTHENTICATION</pol:mode>
+            <pol:max-attempts>3</pol:max-attempts>
+            <pol:lockout-period>300</pol:lockout-period>
+        </pol:failure-handling>
+    </pol:policy>
+</pol:authentication-policies>
