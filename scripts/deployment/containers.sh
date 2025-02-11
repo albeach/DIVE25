@@ -4,10 +4,204 @@
 # It handles container creation, health checks, scaling, and cleanup for both
 # development and production environments.
 
+verify_directory_structure() {
+    log "INFO" "Verifying directory structure"
+
+    local required_files=(
+        "docker/docker-compose.yml"
+        "docker/docker-compose.${environment}.yml"
+    )
+
+    for file in "${required_files[@]}"; do
+        if [[ ! -f "${SCRIPT_DIR}/${file}" ]]; then
+            log "ERROR" "Required file not found: ${file}"
+            log "INFO" "Please ensure all required files are in place before deployment"
+            log "INFO" "Expected location: ${SCRIPT_DIR}/${file}"
+            exit 1
+        fi
+    done
+}
+
+check_docker_auth() {
+    log "INFO" "Checking Docker authentication status"
+    
+    if ! docker info >/dev/null 2>&1; then
+        log "ERROR" "Docker daemon is not running"
+        exit 1
+    fi
+
+    # Check if we can pull a simple public image
+    if ! docker pull hello-world >/dev/null 2>&1; then
+        log "WARN" "Unable to pull Docker images. Attempting to log in..."
+        
+        # Try docker login if needed
+        if ! docker login; then
+            log "ERROR" "Failed to authenticate with Docker Hub"
+            exit 1
+        fi
+    fi
+}
+
+setup_docker_config() {
+    # Create docker config directory
+    mkdir -p ~/.docker
+
+    # Setup platform-specific Docker configuration
+    if [[ "$(uname)" == "Darwin" ]]; then
+        # MacOS configuration
+        cat > ~/.docker/config.json << EOL
+{
+    "credsStore": "osxkeychain",
+    "experimental": "enabled",
+    "features": {
+        "buildkit": "1"
+    }
+}
+EOL
+    else
+        # Linux configuration
+        cat > ~/.docker/config.json << EOL
+        # Ensure proper permissions
+        chmod 600 ~/.docker/config.json
+        
+        # Set up Docker credential helper
+        mkdir -p ~/Library/Containers/com.docker.docker/Data/credentials
+        chmod 700 ~/Library/Containers/com.docker.docker/Data/credentials
+    else
+        # Linux configuration
+        cat > ~/.docker/config.json << EOL
+{
+    "experimental": "enabled",
+    "features": {
+        "buildkit": true
+    }
+}
+EOL
+    fi
+    chmod 600 ~/.docker/config.json
+
+    # Create .env file directory with proper permissions
+    sudo mkdir -p "${SCRIPT_DIR}/docker"
+    sudo chown $(whoami) "${SCRIPT_DIR}/docker"
+}
+
 deploy_docker_containers() {
     local environment=$1
     
-    log "INFO" "Beginning container deployment for ${environment} environment"
+    log "INFO" "Beginning container deployment for ${environment}"
+
+    # Force non-root execution on MacOS
+    if [[ "$(uname)" == "Darwin" && $EUID -eq 0 ]]; then
+        log "ERROR" "On MacOS, please run this script as a regular user, not with sudo"
+        exit 1
+    fi
+
+    # Create docker config directory
+    mkdir -p ~/.docker
+
+    # Setup platform-specific Docker configuration
+    if [[ "$(uname)" == "Darwin" ]]; then
+        # MacOS configuration
+        cat > ~/.docker/config.json << EOL
+{
+    "credsStore": "osxkeychain",
+    "experimental": "enabled",
+    "features": {
+        "buildkit": "1"
+    }
+}
+EOL
+    else
+        # Linux configuration
+        cat > ~/.docker/config.json << EOL
+{
+    "experimental": "enabled",
+    "features": {
+        "buildkit": "1"
+    }
+}
+EOL
+    fi
+    chmod 600 ~/.docker/config.json
+
+    # Set environment variables
+    export COMPOSE_PROJECT_NAME="dive25"
+    export DOCKER_BUILDKIT=1
+    export COMPOSE_DOCKER_CLI_BUILD=1
+    
+    # Ensure Prometheus config directory exists
+    sudo mkdir -p "${SCRIPT_DIR}/docker/monitoring/prometheus"
+    sudo cp "${SCRIPT_DIR}/config/prometheus.yml" "${SCRIPT_DIR}/docker/monitoring/prometheus/"
+    sudo chown -R $(whoami) "${SCRIPT_DIR}/docker/monitoring"
+
+    # Create .env file for Docker Compose with proper permissions
+    sudo mkdir -p "${SCRIPT_DIR}/docker"
+    cat << EOL | sudo tee "${SCRIPT_DIR}/docker/.env" > /dev/null
+PING_IDENTITY_DEVOPS_USER=${PING_IDENTITY_DEVOPS_USER}
+PING_IDENTITY_DEVOPS_KEY=${PING_IDENTITY_DEVOPS_KEY}
+SERVER_PROFILE_URL=https://${PING_IDENTITY_DEVOPS_USER}:${PING_IDENTITY_DEVOPS_KEY}@github.com/your-org/dive25.git
+SERVER_PROFILE_BRANCH=main
+COMPOSE_PROJECT_NAME=dive25
+EOL
+    sudo chown $(whoami) "${SCRIPT_DIR}/docker/.env"
+    chmod 600 "${SCRIPT_DIR}/docker/.env"
+
+    # Stop and remove existing containers
+    docker-compose --project-directory "${SCRIPT_DIR}/docker" \
+        -f "${SCRIPT_DIR}/docker/docker-compose.yml" \
+        -f "${SCRIPT_DIR}/docker/docker-compose.${environment}.yml" \
+        down --remove-orphans
+
+# Docker authentication
+docker logout
+sleep 2
+echo "${PING_IDENTITY_DEVOPS_KEY}" | docker login -u "${PING_IDENTITY_DEVOPS_USER}" --password-stdin docker.io
+
+if [ $? -ne 0 ]; then
+    log "ERROR" "Failed to authenticate with Docker Hub. Check your Ping Identity DevOps credentials."
+    exit 1
+fi
+
+    # Pull and start containers
+    if [[ "$(uname)" == "Darwin" ]]; then
+        # MacOS: run without sudo
+        DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 docker-compose \
+            --project-directory "${SCRIPT_DIR}/docker" \
+            -f "${SCRIPT_DIR}/docker/docker-compose.yml" \
+            -f "${SCRIPT_DIR}/docker/docker-compose.${environment}.yml" \
+            pull
+
+        DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 docker-compose \
+            --project-directory "${SCRIPT_DIR}/docker" \
+            -f "${SCRIPT_DIR}/docker/docker-compose.yml" \
+            -f "${SCRIPT_DIR}/docker/docker-compose.${environment}.yml" \
+            up -d
+    else
+        # Linux: use sudo if needed
+        sudo -E DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 docker-compose \
+            --project-directory "${SCRIPT_DIR}/docker" \
+            -f "${SCRIPT_DIR}/docker/docker-compose.yml" \
+            -f "${SCRIPT_DIR}/docker/docker-compose.${environment}.yml" \
+            pull
+
+        sudo -E DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 docker-compose \
+            --project-directory "${SCRIPT_DIR}/docker" \
+            -f "${SCRIPT_DIR}/docker/docker-compose.yml" \
+            -f "${SCRIPT_DIR}/docker/docker-compose.${environment}.yml" \
+            up -d
+    fi
+
+    # Check if deployment was successful
+    if [ $? -ne 0 ]; then
+        log "ERROR" "Failed to deploy containers. Checking Docker logs..."
+        docker-compose --project-directory "${SCRIPT_DIR}/docker" \
+            -f "${SCRIPT_DIR}/docker/docker-compose.yml" \
+            -f "${SCRIPT_DIR}/docker/docker-compose.${environment}.yml" \
+            logs
+        exit 1
+    fi
+
+    verify_directory_structure
 
     # First, we validate the environment has all necessary resources
     validate_container_requirements "$environment"
@@ -52,17 +246,46 @@ validate_container_requirements() {
 }
 
 check_system_resources() {
-    # Check available disk space
-    local available_space=$(df -P . | awk 'NR==2 {print $4}')
+    log "INFO" "Checking system resources"
+
+    # Check available disk space in a cross-platform way
+    local available_space
+    if [[ "$(uname)" == "Darwin" ]]; then
+        available_space=$(df -k . | awk 'NR==2 {print $4}')
+    else
+        available_space=$(df -P . | awk 'NR==2 {print $4}')
+    fi
+
     if [ "$available_space" -lt 10485760 ]; then  # 10GB in KB
         log "ERROR" "Insufficient disk space. At least 10GB required"
         exit 1
     fi
-    
-    # Check available memory
-    local available_memory=$(free -m | awk 'NR==2 {print $7}')
-    if [ "$available_memory" -lt 4096 ]; then  # 4GB in MB
-        log "ERROR" "Insufficient memory. At least 4GB required"
+
+    # Check available memory in a cross-platform way
+    local available_memory
+    if [[ "$(uname)" == "Darwin" ]]; then
+        local page_size=$(pagesize)
+        local free_pages=$(vm_stat | awk '/free/ {gsub(/\./, "", $3); print $3}')
+        available_memory=$((free_pages * page_size / 1024 / 1024))
+    else
+        available_memory=$(free -m | awk 'NR==2 {print $7}')
+    fi
+
+    # Set memory requirements based on environment
+    local required_memory
+    if [[ "$environment" == "prod" ]]; then
+        required_memory=4096  # 4GB for production
+    else
+        required_memory=2048  # 2GB for development
+    fi
+
+    # Check for memory requirements unless SKIP_MEMORY_CHECK is set
+    if [[ -n "${SKIP_MEMORY_CHECK}" ]]; then
+        log "WARN" "Skipping memory check. This might affect system stability"
+        return 0
+    elif [ "$available_memory" -lt "$required_memory" ]; then
+        log "ERROR" "Insufficient memory. At least ${required_memory}MB required"
+        log "INFO" "To bypass this check, run the script with SKIP_MEMORY_CHECK=true"
         exit 1
     fi
 }

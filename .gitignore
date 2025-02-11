@@ -24,3 +24,21 @@ build/
 
 *.code-workspace
 *.claudesync
+*.pem
+*.crt
+*.key
+*.csr
+*.csr.pem
+*.csr.pem.txt
+*.csr.pem.txt.txt
+*.csr.pem.txt.txt.txt
+*.csr.pem.txt.txt.txt.txt
+*.p12
+*/certs/*
+*/keys/*
+*/private/*
+*/public/*
+*/secrets/*
+*/certificates/*
+certificates/prod/README
+docker/monitoring/grafana/plugins/grafana-lokiexplore-app/1759fd27b2c9f73dea05.wasm

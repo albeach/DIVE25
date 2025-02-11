@@ -1,0 +1,80 @@
+services:
+  pingfederate:
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+    environment:
+      - PF_LOG_LEVEL=INFO
+      - SERVER_PROFILE_URL=https://github.com/your-org/dive25.git
+      - SERVER_PROFILE_PATH=server-profiles/pingfederate
+      - SERVER_PROFILE_BRANCH=main
+    ports:
+      - "443:9031"     # Runtime port (SSL)
+      - "9999:9999"    # Admin console (internal only)
+
+  pingaccess:
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    environment:
+      - PA_LOG_LEVEL=INFO
+      - SERVER_PROFILE_URL=https://github.com/your-org/dive25.git
+      - SERVER_PROFILE_PATH=server-profiles/pingaccess
+      - SERVER_PROFILE_BRANCH=main
+    ports:
+      - "3000:3000"    # Runtime port
+      - "9000:9000"    # Admin console (internal only)
+
+  pingdirectory:
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+    environment:
+      - PD_LOG_LEVEL=INFO
+      - SERVER_PROFILE_URL=https://github.com/your-org/dive25.git
+      - SERVER_PROFILE_PATH=server-profiles/pingdirectory
+      - SERVER_PROFILE_BRANCH=main
+    ports:
+      - "636:636"      # LDAPS
+      - "389:389"      # LDAP
+
+  # Production-only services
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./monitoring/prometheus:/etc/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+    ports:
+      - "9090:9090"
+    networks:
+      - dive25-net
+
+  grafana:
+    image: grafana/grafana:latest
+    volumes:
+      - ./monitoring/grafana:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+    ports:
+      - "3000:3001"
+    networks:
+      - dive25-net

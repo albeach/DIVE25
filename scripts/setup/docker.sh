@@ -8,6 +8,15 @@ setup_docker_environment() {
     
     log "INFO" "Setting up Docker environment for ${environment}"
     
+    # Ensure Docker credential directory exists with proper permissions
+    if [[ "$(uname)" == "Darwin" ]]; then
+        mkdir -p ~/Library/Containers/com.docker.docker/Data/credentials
+        chmod 700 ~/Library/Containers/com.docker.docker/Data/credentials
+    else
+        mkdir -p ~/.docker
+        chmod 700 ~/.docker
+    fi
+
     # Load environment variables
     if [[ "$environment" == "prod" ]]; then
         source "${SCRIPT_DIR}/.env.prod"

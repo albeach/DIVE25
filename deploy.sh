@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# At the beginning of the script, after the shebang
+if [[ "$(uname)" == "Darwin" && $EUID -eq 0 ]]; then
+    echo "On MacOS, please run this script without sudo"
+    exit 1
+fi
+
 # DIVE25/deploy.sh
 # Main deployment script for DIVE25 platform
 
@@ -121,10 +127,24 @@ main() {
 
 # Script execution
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    # Validate root/sudo access
-    if [[ $EUID -ne 0 ]]; then
-        log "ERROR" "This script must be run as root or with sudo"
-        exit 1
+    # Validate root/sudo access based on platform
+    if [[ "$(uname)" == "Darwin" ]]; then
+        # On MacOS, script should run as non-root
+        if [[ $EUID -eq 0 ]]; then
+            log "ERROR" "On MacOS, please run this script without sudo"
+            exit 1
+        fi
+    else
+        # On Linux, script needs root
+        if [[ $EUID -ne 0 ]]; then
+            log "ERROR" "On Linux, this script must be run as root or with sudo"
+            exit 1
+        fi
+    fi
+
+    if [[ "$1" == "--skip-memory-check" ]]; then
+        export SKIP_MEMORY_CHECK=true
+        shift  # Remove the flag from arguments
     fi
     
     # Parse command line arguments

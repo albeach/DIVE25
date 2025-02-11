@@ -1,0 +1,16 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'pingfederate'
+    static_configs:
+      - targets: ['pingfederate:9999']
+
+  - job_name: 'pingaccess'
+    static_configs:
+      - targets: ['pingaccess:9000']
