@@ -103,7 +103,7 @@ main() {
     if [[ ! "$environment" =~ ^(dev|prod)$ ]]; then
         log "ERROR" "Invalid environment. Use 'dev' or 'prod'"
         exit 1
-    }
+    fi
     
     # Check prerequisites
     check_prerequisites
