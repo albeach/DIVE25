@@ -49,7 +49,7 @@ export async function documentAccessMiddleware(
 
         if (!accessResult.allow) {
             logger.warn('Document access denied', {
-                userId: userAttributes.uniqueIdentifier,
+                userId: userAttributes?.uniqueIdentifier || 'unknown',
                 documentId: documentId,
                 action: action,
                 reason: accessResult.reason

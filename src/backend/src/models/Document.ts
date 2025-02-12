@@ -47,6 +47,8 @@ export interface DocumentMetadata {
 export interface DocumentContent {
     location: string;
     hash: string;
+    mimeType: string;
+    size?: number;
 }
 
 export interface Document {

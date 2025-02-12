@@ -88,7 +88,7 @@ export class MetadataValidationService {
             const endpoints = this.extractEndpoints(doc);
             result.endpoints = endpoints;
             
-            if (!endpoints.sso) {
+            if (!endpoints?.sso) {
                 result.errors.push('Missing SSO endpoint');
                 result.valid = false;
             }
@@ -194,10 +194,10 @@ export class MetadataValidationService {
 
                 if (certData) {
                     if (use === 'signing' || !use) {
-                        certificates.signing.push(certData);
+                        certificates.signing?.push(certData);
                     }
                     if (use === 'encryption' || !use) {
-                        certificates.encryption.push(certData);
+                        certificates.encryption?.push(certData);
                     }
                 }
             }

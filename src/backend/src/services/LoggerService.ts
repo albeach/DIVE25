@@ -1,28 +1,9 @@
 // src/services/LoggerService.ts
 
-import winston from 'winston';
-
 export class LoggerService {
     private static instance: LoggerService;
-    private logger: winston.Logger;
 
-    private constructor() {
-        this.logger = winston.createLogger({
-            level: 'info',
-            format: winston.format.combine(
-                winston.format.timestamp(),
-                winston.format.json()
-            ),
-            transports: [
-                new winston.transports.Console({
-                    format: winston.format.combine(
-                        winston.format.colorize(),
-                        winston.format.simple()
-                    )
-                })
-            ]
-        });
-    }
+    private constructor() {}
 
     public static getInstance(): LoggerService {
         if (!LoggerService.instance) {
@@ -31,19 +12,15 @@ export class LoggerService {
         return LoggerService.instance;
     }
 
-    info(message: string, meta?: any): void {
-        this.logger.info(message, meta);
+    public info(message: string, meta?: any): void {
+        console.info(message, meta);
     }
 
-    error(message: string, meta?: any): void {
-        this.logger.error(message, meta);
+    public error(message: string, error?: any): void {
+        console.error(message, error);
     }
 
-    warn(message: string, meta?: any): void {
-        this.logger.warn(message, meta);
-    }
-
-    debug(message: string, meta?: any): void {
-        this.logger.debug(message, meta);
+    public warn(message: string, meta?: any): void {
+        console.warn(message, meta);
     }
 }

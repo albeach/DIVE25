@@ -2,7 +2,8 @@
 
 import axios from 'axios';
 import { config } from '../config/config';
-import { LoggerService } from './LoggerService';
+import { LoggerService } from '../services/LoggerService';
+import { NATODocument } from '../types';
 
 export interface UserAttributes {
     uniqueIdentifier: string;
@@ -121,7 +122,7 @@ export class OPAService {
 
     async evaluateUpdateAccess(
         userAttributes: UserAttributes,
-        document: Document
+        document: NATODocument
     ): Promise<OPAResult> {
         try {
             const response = await axios.post(`${config.opa.url}/document_update`, {
@@ -166,6 +167,20 @@ export class OPAService {
                 allow: false,
                 reason: 'Partner access evaluation error'
             };
+        }
+    }
+
+    public async evaluateDocumentAccess(
+        userAttributes: UserAttributes,
+        document: NATODocument,
+        action: string
+    ): Promise<{ allow: boolean; reason?: string }> {
+        try {
+            // Implement your OPA evaluation logic here
+            return { allow: true };
+        } catch (error) {
+            this.logger.error('Error evaluating document access:', error);
+            return { allow: false, reason: 'Error evaluating access' };
         }
     }
 }

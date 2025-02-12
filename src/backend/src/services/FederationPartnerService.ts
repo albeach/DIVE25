@@ -46,6 +46,9 @@ export class FederationPartnerService {
     private adminApiToken: string;
 
     private constructor() {
+        if (!config.pingFederate?.apiUrl || !config.pingFederate?.adminApiToken) {
+            throw new Error('Missing required PingFederate configuration');
+        }
         this.baseUrl = config.pingFederate.apiUrl;
         this.adminApiToken = config.pingFederate.adminApiToken;
         this.logger = LoggerService.getInstance();

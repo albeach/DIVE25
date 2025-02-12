@@ -10,7 +10,8 @@ export const config = {
   corsOrigins: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3000'],
   port: parseInt(process.env.PORT || '3001', 10),
   mongo: {
-    uri: process.env.MONGO_URI || 'mongodb://localhost:27017/dive25',
+    uri: process.env.MONGODB_URI || 'mongodb://localhost:27017',
+    replicaSet: process.env.MONGODB_REPLICA_SET === 'true'
   },
   opa: {
     url: process.env.OPA_URL || 'http://localhost:8181/v1/data/dive25/abac',
@@ -57,5 +58,10 @@ export const config = {
     secret: process.env.JWT_SECRET || 'your-secret-key',
     audience: process.env.JWT_AUDIENCE || 'dive25-api',
     issuer: process.env.JWT_ISSUER || 'pingfederate',
-  }
+  },
+  storage: {
+    encryptionKey: process.env.STORAGE_ENCRYPTION_KEY || 'default-encryption-key',
+    archiveVersions: process.env.STORAGE_ARCHIVE_VERSIONS === 'true',
+    malwareScan: process.env.STORAGE_MALWARE_SCAN === 'true'
+  },
 };
