@@ -112,15 +112,46 @@ helm upgrade --install pingfederate pingidentity/pingfederate --namespace dive25
 
 ---
 
+# DIVE25 Deployment Runbooks
+
+## Overview
+DIVE25 is a secure identity and access management platform integrating Ping Identity solutions with containerized deployments. This repository contains the deployment runbooks, configurations, and automation scripts for managing and maintaining the DIVE25 platform across different environments.
+
+In a multi-partner NATO environment, enabling secure, controlled access to a centralized repository of sensitive documents requires robust identity federation and Attribute-Based Access Control (ABAC). By adhering to NATO STANAGs (4774, 4778, and 5636) and NATO Security Policy, this report outlines a comprehensive approach for:
+
+- **Federated Authentication**: Integrating multiple Identity Providers (IdPs) through PingFederate.
+- **Standardized Attributes**: Ensuring attributes like classification level, caveats, nationality, and organizational affiliation are consistent and interoperable.
+- **OPA-based ABAC**: Using Open Policy Agent (OPA) and Rego policies to enforce fine-grained authorization decisions.
+- **Document Metadata Storage**: Using MongoDB for flexible and scalable metadata management.
+- **User-Friendly Front-End**: WordPress as a landing page, coupled with a Backend API to orchestrate access decisions.
+
+The outcome is a system where users authenticate via their own IdP, attributes are normalized, and access decisions are made dynamically based on classification, caveats, organizational affiliation, and other STANAG-driven rules before documents are accessible.
+
+## Table of Contents
+1. [System Requirements](#system-requirements)
+2. [Installation](#installation)
+3. [Configuration](#configuration)
+4. [Deployment](#deployment)
+5. [API Endpoints](#api-endpoints)
+6. [Monitoring and Logging](#monitoring-and-logging)
+7. [Security](#security)
+8. [Backup and Recovery](#backup-and-recovery)
+9. [Troubleshooting](#troubleshooting)
+10. [License](#license)
+
+---
+
 ## API Endpoints
 ### User Authentication
-Authenticate users against federated IdPs using PingFederate.
 ```bash
 POST /api/auth/login
 Content-Type: application/json
 {
   "username": "user@example.com",
-  "password": "securepassword"
+  "password": "securepassword",
+  "coi": ["OpAlpha"],
+  "clearance": "NATO SECRET",
+  "countryOfAffiliation": "USA"
 }
 ```
 Response:
@@ -136,14 +167,10 @@ Response:
 POST /api/partners/validate-metadata
 Content-Type: application/json
 {
-  "metadataUrl": "https://partner.example.com/metadata.xml"
-}
-```
-Response:
-```json
-{
-  "valid": true,
-  "message": "Metadata is valid"
+  "metadataUrl": "https://partner.example.com/metadata.xml",
+  "coi": ["OpAlpha"],
+  "clearance": "NATO SECRET",
+  "countryOfAffiliation": "USA"
 }
 ```
 
@@ -157,14 +184,10 @@ Content-Type: application/json
   "federationType": "SAML",
   "metadata": {
     "url": "https://partner.example.com/metadata.xml"
-  }
-}
-```
-Response:
-```json
-{
-  "success": true,
-  "message": "Partner onboarded successfully"
+  },
+  "coi": ["OpAlpha"],
+  "clearance": "NATO SECRET",
+  "countryOfAffiliation": "USA"
 }
 ```
 
@@ -173,38 +196,27 @@ Response:
 POST /api/partners/test-connection
 Content-Type: application/json
 {
-  "partnerId": "PARTNER001"
-}
-```
-Response:
-```json
-{
-  "status": "success",
-  "message": "Federation connection successful"
+  "partnerId": "PARTNER001",
+  "coi": ["OpAlpha"],
+  "clearance": "NATO SECRET",
+  "countryOfAffiliation": "USA"
 }
 ```
 
 ### Document Access Validation
-Validate access permissions before allowing document retrieval.
 ```bash
 POST /api/documents/access
 Content-Type: application/json
 {
   "userId": "12345",
   "documentId": "67890",
-  "coi": ["OpAlpha", "MissionX"]
-}
-```
-Response:
-```json
-{
-  "access": true,
-  "reason": "User has required clearance level and COI"
+  "coi": ["OpAlpha", "MissionX"],
+  "clearance": "NATO SECRET",
+  "countryOfAffiliation": "USA"
 }
 ```
 
 ### Document Metadata Retrieval
-Retrieve metadata for controlled documents.
 ```bash
 GET /api/documents/metadata/67890
 ```
@@ -215,12 +227,15 @@ Response:
   "classification": "NATO SECRET",
   "caveats": ["NOFORN"],
   "allowedNations": ["USA", "GBR", "FRA"],
-  "coi": ["OpAlpha"]
+  "coi": ["OpAlpha"],
+  "optionalAttributes": {
+    "validUntil": "2025-12-31",
+    "sensitivity": "HIGH"
+  }
 }
 ```
 
 ### Policy Evaluation via OPA
-Enforce ABAC rules using OPA.
 ```bash
 POST /api/authorization/evaluate
 Content-Type: application/json
@@ -228,7 +243,7 @@ Content-Type: application/json
   "user": {
     "id": "12345",
     "clearance": "NATO SECRET",
-    "nationality": "USA",
+    "countryOfAffiliation": "USA",
     "coi": ["OpAlpha"]
   },
   "resource": {
@@ -245,6 +260,18 @@ Response:
   "allow": true
 }
 ```
+
+## Note on Optional Metadata Attributes
+Some API endpoints return optional metadata attributes such as:
+- **validUntil**: The date after which access may expire.
+- **sensitivity**: A qualitative measure of the document's criticality.
+
+These attributes provide additional context but are not mandatory for access control decisions.
+
+---
+
+## License
+DIVE25 is licensed under [MIT License](LICENSE).
 
 ---
 
