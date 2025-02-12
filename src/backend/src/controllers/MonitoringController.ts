@@ -1,17 +1,20 @@
 // src/controllers/MonitoringController.ts
-
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import { FederationMonitoringService } from '../services/FederationMonitoringService';
+import { MetricsService } from '../services/MetricsService';
 import { LoggerService } from '../services/LoggerService';
-import { FederationMetrics, PartnerHealth } from '../types/monitoring';
+import { AuthenticatedRequest, AuthError } from '../types';
+import { asAuthError } from '../utils/errorUtils';
 
 export class MonitoringController {
     private static instance: MonitoringController;
-    private monitoringService: FederationMonitoringService;
-    private logger: LoggerService;
+    private readonly monitoringService: FederationMonitoringService;
+    private readonly metricsService: MetricsService;
+    private readonly logger: LoggerService;
 
     private constructor() {
         this.monitoringService = FederationMonitoringService.getInstance();
+        this.metricsService = MetricsService.getInstance();
         this.logger = LoggerService.getInstance();
     }
 
@@ -22,56 +25,133 @@ export class MonitoringController {
         return MonitoringController.instance;
     }
 
-    async getPartnerMetrics(req: Request, res: Response): Promise<void> {
+    async getPartnerMetrics(
+        req: AuthenticatedRequest,
+        res: Response
+    ): Promise<void> {
         try {
             const { partnerId } = req.params;
+
+            // Record metric access
+            this.metricsService.recordHttpRequest(
+                req.method,
+                req.path,
+                200,
+                Date.now() - (req.startTime || Date.now())
+            );
+
             const metrics = await this.monitoringService.getPartnerMetrics(partnerId);
+
+            // Record specific partner metrics
+            Object.entries(metrics).forEach(([key, value]) => {
+                if (typeof value === 'number') {
+                    this.metricsService.recordPartnerMetric(partnerId, key, value);
+                }
+            });
+
             res.json(metrics);
         } catch (error) {
-            this.logger.error('Error fetching partner metrics', { 
-                error: error instanceof Error ? error.message : 'Unknown error'
+            const monitoringError = asAuthError(error);
+            
+            this.logger.error('Error fetching partner metrics:', {
+                error: monitoringError,
+                partnerId: req.params.partnerId,
+                userId: req.userAttributes.uniqueIdentifier
             });
-            res.status(500).json({
-                error: 'Failed to fetch partner metrics',
-                details: error instanceof Error ? error.message : 'Unknown error'
+
+            res.status(monitoringError.statusCode || 500).json({
+                error: monitoringError.message || 'Failed to fetch partner metrics',
+                code: monitoringError.code || 'MON001'
             });
         }
     }
 
-    async getHealthAlerts(req: Request, res: Response): Promise<void> {
+    async getHealthAlerts(
+        req: AuthenticatedRequest,
+        res: Response
+    ): Promise<void> {
         try {
             const alerts = await this.monitoringService.getHealthAlerts();
+
+            // Record metric access
+            this.metricsService.recordHttpRequest(
+                req.method,
+                req.path,
+                200,
+                Date.now() - (req.startTime || Date.now())
+            );
+
+            // Record alert metrics
+            this.metricsService.recordPartnerMetric(
+                'system',
+                'active_alerts',
+                alerts.length
+            );
+
             res.json(alerts);
         } catch (error) {
-            this.logger.error('Error fetching health alerts', { 
-                error: error instanceof Error ? error.message : 'Unknown error'
+            const monitoringError = asAuthError(error);
+            
+            this.logger.error('Error fetching health alerts:', {
+                error: monitoringError,
+                userId: req.userAttributes.uniqueIdentifier
             });
-            res.status(500).json({
-                error: 'Failed to fetch health alerts',
-                details: error instanceof Error ? error.message : 'Unknown error'
+
+            res.status(monitoringError.statusCode || 500).json({
+                error: monitoringError.message || 'Failed to fetch health alerts',
+                code: monitoringError.code || 'MON002'
             });
         }
     }
 
-    async recordMetric(req: Request, res: Response): Promise<void> {
+    async getSystemMetrics(
+        req: AuthenticatedRequest,
+        res: Response
+    ): Promise<void> {
         try {
-            const { partnerId, metricType, value } = req.body;
-            
-            if (!partnerId || !metricType) {
-                res.status(400).json({ error: 'Missing required parameters' });
-                return;
-            }
+            const metrics = await this.metricsService.getMetrics();
 
-            await this.monitoringService.recordMetric(partnerId, metricType, value);
-            res.status(200).json({ message: 'Metric recorded successfully' });
+            res.set('Content-Type', 'text/plain');
+            res.send(metrics);
         } catch (error) {
-            this.logger.error('Error recording metric', { 
-                error: error instanceof Error ? error.message : 'Unknown error'
+            const monitoringError = asAuthError(error);
+            
+            this.logger.error('Error fetching system metrics:', {
+                error: monitoringError,
+                userId: req.userAttributes.uniqueIdentifier
             });
-            res.status(500).json({
-                error: 'Failed to record metric',
-                details: error instanceof Error ? error.message : 'Unknown error'
+
+            res.status(monitoringError.statusCode || 500).json({
+                error: monitoringError.message || 'Failed to fetch system metrics',
+                code: monitoringError.code || 'MON003'
+            });
+        }
+    }
+
+    async resetMetrics(
+        req: AuthenticatedRequest,
+        res: Response
+    ): Promise<void> {
+        try {
+            await this.monitoringService.clearMetrics(req.params.partnerId);
+            this.metricsService.resetMetrics();
+
+            res.json({ message: 'Metrics reset successfully' });
+        } catch (error) {
+            const monitoringError = asAuthError(error);
+            
+            this.logger.error('Error resetting metrics:', {
+                error: monitoringError,
+                partnerId: req.params.partnerId,
+                userId: req.userAttributes.uniqueIdentifier
+            });
+
+            res.status(monitoringError.statusCode || 500).json({
+                error: monitoringError.message || 'Failed to reset metrics',
+                code: monitoringError.code || 'MON004'
             });
         }
     }
 }
+
+export default MonitoringController.getInstance();

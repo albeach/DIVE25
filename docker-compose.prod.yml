@@ -28,7 +28,7 @@ services:
     environment:
       - PA_LOG_LEVEL=INFO
     ports:
-      - "3001:3000"    # Runtime port
+      - "3000:3000"    # Runtime port
       - "9000:9000"    # Admin console (internal only)
 
   pingdirectory:
@@ -66,6 +66,6 @@ services:
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
     ports:
-      - "3050:3000"
+      - "3050:4000"
     networks:
       - dive25-net

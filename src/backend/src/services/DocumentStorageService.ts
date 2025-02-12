@@ -1,34 +1,42 @@
-// src/backend/src/services/DocumentStorageService.ts
-
+// src/services/DocumentStorageService.ts
 import { Collection, ObjectId } from 'mongodb';
-import { createHash } from 'crypto';
-import { Document } from '../models/Document';
 import { DatabaseService } from './DatabaseService';
 import { LoggerService } from './LoggerService';
+import { Document, DocumentContent, DocumentMetadata } from '../models/Document';
+import { StorageError } from '../utils/errors';
+
+interface StorageQuery {
+    clearance?: string;
+    releasableTo?: string[];
+    coiTags?: string[];
+    lacvCode?: string;
+    text?: string;
+    dateRange?: {
+        start: Date;
+        end: Date;
+    };
+}
 
 export class DocumentStorageService {
     private static instance: DocumentStorageService;
-    private db: DatabaseService;
-    private logger: LoggerService;
+    private readonly dbService: DatabaseService;
+    private readonly logger: LoggerService;
     private collection: Collection<Document>;
 
     private constructor() {
-        this.db = DatabaseService.getInstance();
+        this.dbService = DatabaseService.getInstance();
         this.logger = LoggerService.getInstance();
-        this.collection = this.db.getCollection('documents');
-        
-        // Create indexes for efficient querying
-        this.setupIndexes();
+        this.initializeCollection();
     }
 
-    private async setupIndexes(): Promise<void> {
-        await this.collection.createIndex({ 'security.classification': 1 });
-        await this.collection.createIndex({ 'security.coiTags': 1 });
-        await this.collection.createIndex({ 'metadata.createdAt': 1 });
-        await this.collection.createIndex({ 
-            title: 'text',
-            'metadata.originalFileName': 'text'
-        });
+    private async initializeCollection(): Promise<void> {
+        try {
+            this.collection = await this.dbService.getCollection<Document>('documents');
+            await this.createIndexes();
+        } catch (error) {
+            this.logger.error('Failed to initialize document collection:', error);
+            throw new StorageError('Failed to initialize storage service', { cause: error });
+        }
     }
 
     public static getInstance(): DocumentStorageService {
@@ -38,125 +46,155 @@ export class DocumentStorageService {
         return DocumentStorageService.instance;
     }
 
-    async storeDocument(
-        content: Buffer,
-        metadata: any,
-        userInfo: any
-    ): Promise<Document> {
+    private async createIndexes(): Promise<void> {
         try {
-            // Generate content hash for integrity
-            const hash = createHash('sha256').update(content).digest('hex');
-            
-            const document: Document = {
-                title: metadata.title,
-                content: {
-                    data: content,
-                    mimeType: metadata.mimeType,
-                    size: content.length,
-                    hash: hash
-                },
-                metadata: {
-                    createdAt: new Date(),
-                    createdBy: userInfo.uniqueIdentifier,
-                    lastModified: new Date(),
-                    version: 1,
-                    originalFileName: metadata.originalFileName
-                },
-                security: {
-                    classification: metadata.classification,
-                    caveats: metadata.caveats || [],
-                    releasability: metadata.releasability || [],
-                    coiTags: metadata.coiTags || [],
-                    lacvCode: metadata.lacvCode
-                },
-                accessControl: {
-                    ownerOrganization: userInfo.organizationalAffiliation,
-                    accessGroups: metadata.accessGroups || [],
-                    handlingInstructions: metadata.handlingInstructions
+            await this.collection.createIndexes([
+                { key: { clearance: 1 } },
+                { key: { releasableTo: 1 } },
+                { key: { coiTags: 1 } },
+                { key: { lacvCode: 1 } },
+                { key: { 'metadata.createdAt': 1 } },
+                {
+                    key: { title: 'text', 'metadata.keywords': 'text' },
+                    weights: { title: 10, 'metadata.keywords': 5 }
                 }
+            ]);
+        } catch (error) {
+            this.logger.error('Failed to create indexes:', error);
+            throw new StorageError('Failed to create storage indexes', { cause: error });
+        }
+    }
+
+    async storeDocument(document: Omit<Document, '_id'>): Promise<Document> {
+        try {
+            const content: DocumentContent = {
+                location: document.content.location,
+                hash: document.content.hash
             };
 
-            const result = await this.collection.insertOne(document);
+            const metadata: DocumentMetadata = {
+                createdAt: new Date(),
+                createdBy: document.metadata.createdBy,
+                lastModified: new Date(),
+                version: 1
+            };
 
-            this.logger.info('Document stored successfully', {
-                documentId: result.insertedId,
-                classification: document.security.classification
-            });
+            const result = await this.collection.insertOne({
+                ...document,
+                content,
+                metadata
+            } as Document);
 
-            return { ...document, _id: result.insertedId };
+            const stored = await this.collection.findOne({ _id: result.insertedId });
+            if (!stored) {
+                throw new StorageError('Failed to retrieve stored document');
+            }
+
+            return stored;
         } catch (error) {
-            this.logger.error('Error storing document', { error });
-            throw error;
+            this.logger.error('Failed to store document:', error);
+            throw new StorageError('Failed to store document', { cause: error });
         }
     }
 
-    async retrieveDocument(documentId: string): Promise<Document> {
+    async searchDocuments(query: StorageQuery): Promise<Document[]> {
         try {
-            const document = await this.collection.findOne({
-                _id: new ObjectId(documentId)
-            });
-
-            if (!document) {
-                throw new Error('Document not found');
-            }
-
-            // Verify document integrity
-            const hash = createHash('sha256')
-                .update(document.content.data)
-                .digest('hex');
-
-            if (hash !== document.content.hash) {
-                this.logger.error('Document integrity check failed', { documentId });
-                throw new Error('Document integrity check failed');
-            }
-
-            return document;
+            const mongoQuery = this.buildMongoQuery(query);
+            return await this.collection.find(mongoQuery).toArray();
         } catch (error) {
-            this.logger.error('Error retrieving document', { error });
-            throw error;
+            this.logger.error('Failed to search documents:', error);
+            throw new StorageError('Failed to search documents', { cause: error });
         }
     }
 
-    async searchDocuments(query: any, userInfo: any): Promise<Document[]> {
+    private buildMongoQuery(query: StorageQuery): Record<string, any> {
+        const mongoQuery: Record<string, any> = {};
+
+        if (query.clearance) {
+            mongoQuery.clearance = query.clearance;
+        }
+
+        if (query.releasableTo?.length) {
+            mongoQuery.releasableTo = { $in: query.releasableTo };
+        }
+
+        if (query.coiTags?.length) {
+            mongoQuery.coiTags = { $all: query.coiTags };
+        }
+
+        if (query.lacvCode) {
+            mongoQuery.lacvCode = query.lacvCode;
+        }
+
+        if (query.text) {
+            mongoQuery.$text = { $search: query.text };
+        }
+
+        if (query.dateRange) {
+            mongoQuery['metadata.createdAt'] = {
+                $gte: query.dateRange.start,
+                $lte: query.dateRange.end
+            };
+        }
+
+        return mongoQuery;
+    }
+
+    async getDocument(id: string): Promise<Document | null> {
         try {
-            // Build search criteria based on user's clearance and other attributes
-            const searchCriteria = {
-                $and: [
-                    { 'security.classification': { $lte: userInfo.clearance } },
-                    { 
-                        $or: [
-                            { 'security.releasability': { $in: userInfo.releasabilityAccess } },
-                            { 'security.releasability': { $size: 0 } }
-                        ]
+            if (!ObjectId.isValid(id)) {
+                throw new StorageError('Invalid document ID');
+            }
+
+            return await this.collection.findOne({ _id: new ObjectId(id) });
+        } catch (error) {
+            this.logger.error('Failed to retrieve document:', error);
+            throw new StorageError('Failed to retrieve document', { cause: error });
+        }
+    }
+
+    async updateDocument(id: string, update: Partial<Document>): Promise<Document> {
+        try {
+            if (!ObjectId.isValid(id)) {
+                throw new StorageError('Invalid document ID');
+            }
+
+            const result = await this.collection.findOneAndUpdate(
+                { _id: new ObjectId(id) },
+                { 
+                    $set: {
+                        ...update,
+                        'metadata.lastModified': new Date(),
+                        'metadata.version': { $inc: 1 }
                     }
-                ]
-            };
+                },
+                { returnDocument: 'after' }
+            );
 
-            // Add text search if provided
-            if (query.searchText) {
-                searchCriteria['$text'] = { $search: query.searchText };
+            if (!result) {
+                throw new StorageError('Document not found');
             }
 
-            // Add classification filter if provided
-            if (query.classification) {
-                searchCriteria['security.classification'] = query.classification;
-            }
-
-            // Add COI filter if provided
-            if (query.coiTags && query.coiTags.length > 0) {
-                searchCriteria['security.coiTags'] = { $all: query.coiTags };
-            }
-
-            const documents = await this.collection
-                .find(searchCriteria)
-                .sort({ 'metadata.createdAt': -1 })
-                .limit(query.limit || 50)
-                .toArray();
-
-            return documents;
+            return result;
         } catch (error) {
-            this.logger.error('Error searching documents', { error });
-            throw error;
+            this.logger.error('Failed to update document:', error);
+            throw new StorageError('Failed to update document', { cause: error });
+        }
+    }
+
+    async deleteDocument(id: string): Promise<boolean> {
+        try {
+            if (!ObjectId.isValid(id)) {
+                throw new StorageError('Invalid document ID');
+            }
+
+            const result = await this.collection.deleteOne({ _id: new ObjectId(id) });
+            return result.deletedCount === 1;
+        } catch (error) {
+            this.logger.error('Failed to delete document:', error);
+            throw new StorageError('Failed to delete document', { cause: error });
         }
     }
 }
+
+export default DocumentStorageService;

@@ -1,119 +1,191 @@
-// src/backend/src/middleware/documentValidation.ts
-
-import { Request, Response, NextFunction } from 'express';
-import { Classification, ValidReleasabilityMarkers, ValidCoiTags } from '../models/Document';
+// src/middleware/documentValidation.ts
+import { Response, NextFunction } from 'express';
+import { 
+   ClearanceLevel,
+   CoiTag,
+   LacvCode,
+   Document,
+   ValidClearanceLevels,
+   ValidCoiTags,
+   ValidLacvCodes,
+   ValidReleasabilityMarkers,
+   ReleasabilityMarker
+} from '../models/Document';
+import { AuthenticatedRequest, AuthError } from '../types';
 import { LoggerService } from '../services/LoggerService';
+import { asAuthError } from '../utils/errorUtils';
 
-const logger = LoggerService.getInstance();
+export class DocumentValidationMiddleware {
+   private static instance: DocumentValidationMiddleware;
+   private readonly logger: LoggerService;
 
-export function validateDocumentMetadata(req: Request, res: Response, next: NextFunction) {
-    try {
-        if (!req.body.metadata) {
-            return res.status(400).json({
-                error: 'Document metadata is required'
-            });
-        }
+   private constructor() {
+       this.logger = LoggerService.getInstance();
+   }
 
-        const metadata = JSON.parse(req.body.metadata);
+   public static getInstance(): DocumentValidationMiddleware {
+       if (!DocumentValidationMiddleware.instance) {
+           DocumentValidationMiddleware.instance = new DocumentValidationMiddleware();
+       }
+       return DocumentValidationMiddleware.instance;
+   }
 
-        // Validate required metadata fields
-        const requiredFields = ['title', 'classification'];
-        const missingFields = requiredFields.filter(field => !metadata[field]);
-        
-        if (missingFields.length > 0) {
-            return res.status(400).json({
-                error: 'Missing required metadata fields',
-                missingFields
-            });
-        }
+   public validateDocument = async (
+       req: AuthenticatedRequest,
+       res: Response,
+       next: NextFunction
+   ): Promise<void> => {
+       try {
+           const document = req.body as Partial<Document>;
 
-        // Validate classification level
-        if (!Object.values(Classification).includes(metadata.classification)) {
-            return res.status(400).json({
-                error: 'Invalid classification level',
-                validLevels: Object.values(Classification)
-            });
-        }
+           // Validate required fields
+           this.validateRequiredFields(document);
 
-        // Validate releasability markers if provided
-        if (metadata.releasability) {
-            if (!Array.isArray(metadata.releasability)) {
-                return res.status(400).json({
-                    error: 'Releasability must be an array'
-                });
-            }
+           // Validate clearance level
+           if (!this.isValidClearance(document.clearance)) {
+               throw this.createValidationError(
+                   'Invalid clearance level',
+                   400,
+                   'VAL001',
+                   { validLevels: ValidClearanceLevels }
+               );
+           }
 
-            const invalidMarkers = metadata.releasability.filter(
-                marker => !ValidReleasabilityMarkers.includes(marker)
-            );
+           // Validate releasability markers
+           if (!this.validateReleasabilityMarkers(document.releasableTo)) {
+               throw this.createValidationError(
+                   'Invalid releasability markers',
+                   400,
+                   'VAL002',
+                   { validMarkers: ValidReleasabilityMarkers }
+               );
+           }
 
-            if (invalidMarkers.length > 0) {
-                return res.status(400).json({
-                    error: 'Invalid releasability markers',
-                    invalidMarkers,
-                    validMarkers: ValidReleasabilityMarkers
-                });
-            }
-        }
+           // Validate COI tags if present
+           if (document.coiTags && !this.validateCoiTags(document.coiTags)) {
+               throw this.createValidationError(
+                   'Invalid COI tags',
+                   400,
+                   'VAL003',
+                   { validTags: ValidCoiTags }
+               );
+           }
 
-        // Validate COI tags if provided
-        if (metadata.coiTags) {
-            if (!Array.isArray(metadata.coiTags)) {
-                return res.status(400).json({
-                    error: 'COI tags must be an array'
-                });
-            }
+           // Validate LACV code if present
+           if (document.lacvCode && !this.isValidLacvCode(document.lacvCode)) {
+               throw this.createValidationError(
+                   'Invalid LACV code',
+                   400,
+                   'VAL004',
+                   { validCodes: ValidLacvCodes }
+               );
+           }
 
-            const invalidTags = metadata.coiTags.filter(
-                tag => !ValidCoiTags.includes(tag)
-            );
+           // Validate user has permission to set clearance level
+           if (!req.userAttributes) {
+               throw this.createValidationError(
+                   'User attributes not found',
+                   401,
+                   'VAL005'
+               );
+           }
 
-            if (invalidTags.length > 0) {
-                return res.status(400).json({
-                    error: 'Invalid COI tags',
-                    invalidTags,
-                    validTags: ValidCoiTags
-                });
-            }
-        }
+           if (!this.hasAdequateClearance(
+               req.userAttributes.clearance as ClearanceLevel,
+               document.clearance as ClearanceLevel
+           )) {
+               throw this.createValidationError(
+                   'Insufficient clearance to set document classification',
+                   403,
+                   'VAL006'
+               );
+           }
 
-        // Validate LACV code format if provided
-        if (metadata.lacvCode && !/^LACV\d{3}$/.test(metadata.lacvCode)) {
-            return res.status(400).json({
-                error: 'Invalid LACV code format. Must match pattern: LACV followed by 3 digits'
-            });
-        }
+           next();
+       } catch (error) {
+           const validationError = asAuthError(error);
 
-        // Enhance metadata with additional security checks
-        metadata.security = {
-            classification: metadata.classification,
-            caveats: metadata.caveats || [],
-            releasability: metadata.releasability || [],
-            coiTags: metadata.coiTags || [],
-            lacvCode: metadata.lacvCode
-        };
+           this.logger.error('Document validation error', {
+               error: validationError,
+               userId: req.userAttributes?.uniqueIdentifier,
+               document: req.body
+           });
 
-        // Add audit information
-        metadata.audit = {
-            uploadedAt: new Date(),
-            uploadedBy: req.userAttributes.uniqueIdentifier,
-            organizationalAffiliation: req.userAttributes.organizationalAffiliation
-        };
+           res.status(validationError.statusCode || 400).json({
+               error: validationError.message || 'Document validation failed',
+               code: validationError.code || 'VAL000',
+               details: validationError.details
+           });
+       }
+   };
 
-        // Store enhanced metadata back in request
-        req.body.metadata = JSON.stringify(metadata);
-        
-        logger.info('Document metadata validated successfully', {
-            classification: metadata.classification,
-            uploader: req.userAttributes.uniqueIdentifier
-        });
+   private validateRequiredFields(document: Partial<Document>): void {
+       const requiredFields = ['title', 'clearance', 'releasableTo'];
+       const missingFields = requiredFields.filter(field => !(field in document));
 
-        next();
-    } catch (error) {
-        logger.error('Document metadata validation error', { error });
-        res.status(400).json({
-            error: 'Invalid metadata format',
-            details: error.message
-        });
-    }
+       if (missingFields.length > 0) {
+           throw this.createValidationError(
+               'Missing required fields',
+               400,
+               'VAL007',
+               { missingFields }
+           );
+       }
+   }
+
+   private isValidClearance(clearance: unknown): clearance is ClearanceLevel {
+       return typeof clearance === 'string' && 
+              ValidClearanceLevels.includes(clearance as ClearanceLevel);
+   }
+
+   private validateReleasabilityMarkers(markers: unknown): markers is ReleasabilityMarker[] {
+       return Array.isArray(markers) && 
+              markers.every(marker => 
+                  ValidReleasabilityMarkers.includes(marker as ReleasabilityMarker)
+              );
+   }
+
+   private validateCoiTags(tags: unknown): tags is CoiTag[] {
+       return Array.isArray(tags) && 
+              tags.every(tag => 
+                  ValidCoiTags.includes(tag as CoiTag)
+              );
+   }
+
+   private isValidLacvCode(code: unknown): code is LacvCode {
+       return typeof code === 'string' && 
+              ValidLacvCodes.includes(code as LacvCode);
+   }
+
+   private hasAdequateClearance(
+       userClearance: ClearanceLevel,
+       documentClearance: ClearanceLevel
+   ): boolean {
+       const clearanceLevels: { [key in ClearanceLevel]: number } = {
+           'UNCLASSIFIED': 0,
+           'RESTRICTED': 1,
+           'NATO CONFIDENTIAL': 2,
+           'NATO SECRET': 3,
+           'COSMIC TOP SECRET': 4
+       };
+
+       return clearanceLevels[userClearance] >= clearanceLevels[documentClearance];
+   }
+
+   private createValidationError(
+       message: string,
+       statusCode: number,
+       code: string,
+       details?: Record<string, unknown>
+   ): AuthError {
+       const error = new Error(message) as AuthError;
+       error.statusCode = statusCode;
+       error.code = code;
+       if (details) {
+           error.details = details;
+       }
+       return error;
+   }
 }
+
+export default DocumentValidationMiddleware.getInstance();

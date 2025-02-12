@@ -1,10 +1,12 @@
 import { Request, Response } from 'express';
-import { PartnerConfig, OAuthClientConfig } from '../types/partner';
 import { FederationPartnerService, PartnerConfig } from '../services/FederationPartnerService';
 import { OAuthClientService, OAuthClientConfig } from '../services/OAuthClientService';
 import { MetadataValidationService } from '../services/MetadataValidationService';
 import { SessionManagementService } from '../services/SessionManagementService';
 import { LoggerService } from '../services/LoggerService';
+import { AuthenticatedRequest, AuthError } from '../types';
+import { SAML2Client } from '../services/SAML2Client';
+import { FederationMonitoringService } from '../services/FederationMonitoringService';
 
 export class PartnerController {
     private static instance: PartnerController;
@@ -13,6 +15,8 @@ export class PartnerController {
     private metadataValidator: MetadataValidationService;
     private sessionManager: SessionManagementService;
     private logger: LoggerService;
+    private samlClient: SAML2Client;
+    private monitoringService: FederationMonitoringService;
 
     private constructor() {
         this.federationService = FederationPartnerService.getInstance();
@@ -20,6 +24,8 @@ export class PartnerController {
         this.metadataValidator = MetadataValidationService.getInstance();
         this.sessionManager = SessionManagementService.getInstance();
         this.logger = LoggerService.getInstance();
+        this.samlClient = SAML2Client.getInstance();
+        this.monitoringService = FederationMonitoringService.getInstance();
     }
 
     public static getInstance(): PartnerController {
@@ -29,56 +35,68 @@ export class PartnerController {
         return PartnerController.instance;
     }
 
-    async onboardPartner(req: Request, res: Response): Promise<void> {
+    async onboardPartner(req: AuthenticatedRequest, res: Response): Promise<void> {
+        const startTime = Date.now();
         try {
-            const partnerConfig = req.body.partnerConfig as PartnerConfig;
-            const oauthConfig = req.body.oauthConfig as OAuthClientConfig;
+            const { partnerConfig, oauthConfig } = req.body;
 
             // Validate request body
             this.validatePartnerConfig(partnerConfig);
             this.validateOAuthConfig(oauthConfig);
 
-            // Validate metadata
+            // Validate metadata first
             const validationResult = await this.metadataValidator.validateMetadata(
-                partnerConfig.metadata.url || ''
+                partnerConfig.metadata.url
             );
 
             if (!validationResult.valid) {
                 this.logger.error('Invalid partner metadata', { validationResult });
-                res.status(400).json({
-                    error: 'Invalid partner metadata',
-                    validationResult
-                });
-                return;
+                const error = new Error('Invalid partner metadata') as AuthError;
+                error.statusCode = 400;
+                error.details = validationResult.errors;
+                throw error;
             }
 
             // Create OAuth client
-            const oauthClient = await this.oauthService.createOAuthClient(oauthConfig);
+            const oauthClient = await this.oauthService.createOAuthClient({
+                ...oauthConfig,
+                partnerId: partnerConfig.partnerId
+            });
 
             // Onboard federation partner
             const partnerConnection = await this.federationService.onboardPartner({
                 ...partnerConfig,
-                oauthClientId: oauthClient.clientId
+                oauthClientId: oauthClient.clientId,
+                createdBy: req.userAttributes.uniqueIdentifier
+            });
+
+            // Initialize monitoring
+            await this.monitoringService.updatePartnerHealth(partnerConfig.partnerId, {
+                partnerId: partnerConfig.partnerId,
+                status: 'healthy',
+                lastChecked: new Date(),
+                responseTime: 0,
+                errorCount: 0,
+                successRate: 100
             });
 
             this.logger.info('Partner onboarded successfully', {
                 partnerId: partnerConfig.partnerId,
-                connectionId: partnerConnection.id
+                connectionId: partnerConnection.id,
+                duration: Date.now() - startTime
             });
 
-            res.status(200).json({
+            res.status(201).json({
                 message: 'Partner onboarded successfully',
                 oauthClient,
                 partnerConnection
             });
-
         } catch (error) {
-            this.logger.error('Partner onboarding error', { 
-                error: error instanceof Error ? error.message : 'Unknown error' 
-            });
-            res.status(500).json({
-                error: 'Partner onboarding failed',
-                details: error instanceof Error ? error.message : 'Unknown error'
+            this.logger.error('Partner onboarding error', { error });
+            res.status((error as AuthError).statusCode || 500).json({
+                error: error.message || 'Partner onboarding failed',
+                code: (error as AuthError).code,
+                details: (error as AuthError).details
             });
         }
     }
@@ -88,10 +106,9 @@ export class PartnerController {
             const { metadataUrl } = req.body;
             
             if (!metadataUrl) {
-                res.status(400).json({
-                    error: 'Metadata URL is required'
-                });
-                return;
+                const error = new Error('Metadata URL is required') as AuthError;
+                error.statusCode = 400;
+                throw error;
             }
 
             const validationResult = await this.metadataValidator.validateMetadata(metadataUrl);
@@ -109,46 +126,56 @@ export class PartnerController {
             res.status(200).json(validationResult);
         } catch (error) {
             this.logger.error('Metadata validation error', { error });
-            res.status(500).json({
-                error: 'Metadata validation failed',
-                details: error.message
+            res.status((error as AuthError).statusCode || 500).json({
+                error: error.message || 'Metadata validation failed',
+                details: (error as AuthError).details
             });
         }
     }
 
-    async getPartnerDetails(req: Request, res: Response): Promise<void> {
+    async getPartnerDetails(req: AuthenticatedRequest, res: Response): Promise<void> {
         try {
             const { partnerId } = req.params;
             const partner = await this.federationService.getPartner(partnerId);
 
             if (!partner) {
-                res.status(404).json({
-                    error: 'Partner not found'
-                });
-                return;
+                const error = new Error('Partner not found') as AuthError;
+                error.statusCode = 404;
+                throw error;
             }
 
-            const oauthClient = await this.oauthService.getOAuthClient(partner.oauthClientId);
-            const sessionStats = await this.sessionManager.getPartnerSessionStats(partnerId);
+            const [oauthClient, sessionStats, healthMetrics] = await Promise.all([
+                this.oauthService.getOAuthClient(partner.oauthClientId),
+                this.sessionManager.getPartnerSessionStats(partnerId),
+                this.monitoringService.getPartnerMetrics(partnerId)
+            ]);
 
             res.status(200).json({
                 partner,
                 oauthClient,
-                sessionStats
+                sessionStats,
+                healthMetrics
             });
         } catch (error) {
             this.logger.error('Error retrieving partner details', { error });
-            res.status(500).json({
-                error: 'Failed to retrieve partner details',
-                details: error.message
+            res.status((error as AuthError).statusCode || 500).json({
+                error: error.message || 'Failed to retrieve partner details',
+                details: (error as AuthError).details
             });
         }
     }
 
-    async updatePartner(req: Request, res: Response): Promise<void> {
+    async updatePartner(req: AuthenticatedRequest, res: Response): Promise<void> {
         try {
             const { partnerId } = req.params;
             const updateConfig = req.body;
+
+            const existingPartner = await this.federationService.getPartner(partnerId);
+            if (!existingPartner) {
+                const error = new Error('Partner not found') as AuthError;
+                error.statusCode = 404;
+                throw error;
+            }
 
             // Validate update config
             if (updateConfig.metadata?.url) {
@@ -157,52 +184,92 @@ export class PartnerController {
                 );
 
                 if (!validationResult.valid) {
-                    res.status(400).json({
-                        error: 'Invalid metadata in update',
-                        validationResult
-                    });
-                    return;
+                    const error = new Error('Invalid metadata in update') as AuthError;
+                    error.statusCode = 400;
+                    error.details = validationResult.errors;
+                    throw error;
                 }
             }
 
             const updatedPartner = await this.federationService.updatePartner(
                 partnerId,
-                updateConfig
+                {
+                    ...updateConfig,
+                    lastModifiedBy: req.userAttributes.uniqueIdentifier
+                }
             );
 
-            this.logger.info('Partner updated successfully', { partnerId });
+            // Update OAuth client if necessary
+            if (updateConfig.oauth) {
+                await this.oauthService.updateOAuthClient(
+                    existingPartner.oauthClientId,
+                    updateConfig.oauth
+                );
+            }
+
+            this.logger.info('Partner updated successfully', { 
+                partnerId,
+                updatedBy: req.userAttributes.uniqueIdentifier
+            });
+
             res.status(200).json(updatedPartner);
         } catch (error) {
             this.logger.error('Partner update error', { error });
-            res.status(500).json({
-                error: 'Failed to update partner',
-                details: error.message
+            res.status((error as AuthError).statusCode || 500).json({
+                error: error.message || 'Failed to update partner',
+                details: (error as AuthError).details
             });
         }
     }
 
-    async deactivatePartner(req: Request, res: Response): Promise<void> {
+    async deactivatePartner(req: AuthenticatedRequest, res: Response): Promise<void> {
         try {
             const { partnerId } = req.params;
             const { reason } = req.body;
 
-            await this.federationService.deactivatePartner(partnerId, reason);
+            if (!reason) {
+                const error = new Error('Deactivation reason is required') as AuthError;
+                error.statusCode = 400;
+                throw error;
+            }
+
+            await this.federationService.deactivatePartner(partnerId, {
+                reason,
+                deactivatedBy: req.userAttributes.uniqueIdentifier
+            });
+
+            // Terminate all active sessions
             await this.sessionManager.terminatePartnerSessions(partnerId);
 
-            this.logger.info('Partner deactivated', { partnerId, reason });
+            // Update monitoring status
+            await this.monitoringService.updatePartnerHealth(partnerId, {
+                partnerId,
+                status: 'down',
+                lastChecked: new Date(),
+                responseTime: 0,
+                errorCount: 0,
+                successRate: 0
+            });
+
+            this.logger.info('Partner deactivated', {
+                partnerId,
+                reason,
+                deactivatedBy: req.userAttributes.uniqueIdentifier
+            });
+
             res.status(200).json({
                 message: 'Partner deactivated successfully'
             });
         } catch (error) {
             this.logger.error('Partner deactivation error', { error });
-            res.status(500).json({
-                error: 'Failed to deactivate partner',
-                details: error.message
+            res.status((error as AuthError).statusCode || 500).json({
+                error: error.message || 'Failed to deactivate partner',
+                details: (error as AuthError).details
             });
         }
     }
 
-    async reactivatePartner(req: Request, res: Response): Promise<void> {
+    async reactivatePartner(req: AuthenticatedRequest, res: Response): Promise<void> {
         try {
             const { partnerId } = req.params;
             
@@ -210,55 +277,93 @@ export class PartnerController {
             const validationResult = await this.federationService.validatePartnerStatus(partnerId);
             
             if (!validationResult.canReactivate) {
-                res.status(400).json({
-                    error: 'Partner cannot be reactivated',
-                    reasons: validationResult.reasons
-                });
-                return;
+                const error = new Error('Partner cannot be reactivated') as AuthError;
+                error.statusCode = 400;
+                error.details = validationResult.reasons;
+                throw error;
             }
 
-            await this.federationService.reactivatePartner(partnerId);
+            await this.federationService.reactivatePartner(partnerId, {
+                reactivatedBy: req.userAttributes.uniqueIdentifier
+            });
 
-            this.logger.info('Partner reactivated', { partnerId });
+            // Initialize new health monitoring
+            await this.monitoringService.updatePartnerHealth(partnerId, {
+                partnerId,
+                status: 'healthy',
+                lastChecked: new Date(),
+                responseTime: 0,
+                errorCount: 0,
+                successRate: 100
+            });
+
+            this.logger.info('Partner reactivated', {
+                partnerId,
+                reactivatedBy: req.userAttributes.uniqueIdentifier
+            });
+
             res.status(200).json({
                 message: 'Partner reactivated successfully'
             });
         } catch (error) {
             this.logger.error('Partner reactivation error', { error });
-            res.status(500).json({
-                error: 'Failed to reactivate partner',
-                details: error.message
+            res.status((error as AuthError).statusCode || 500).json({
+                error: error.message || 'Failed to reactivate partner',
+                details: (error as AuthError).details
             });
         }
     }
 
     private validatePartnerConfig(config: PartnerConfig): void {
-        const requiredFields = ['partnerId', 'partnerName', 'federationType', 'metadata'] as const;
-        
+        const requiredFields = [
+            'partnerId',
+            'partnerName',
+            'federationType',
+            'metadata'
+        ];
+
         for (const field of requiredFields) {
             if (!config[field]) {
-                throw new Error(`Missing required field: ${field}`);
+                const error = new Error(`Missing required field: ${field}`) as AuthError;
+                error.statusCode = 400;
+                throw error;
             }
         }
 
         if (!['SAML', 'OIDC'].includes(config.federationType)) {
-            throw new Error('Invalid federation type. Must be either SAML or OIDC');
+            const error = new Error('Invalid federation type. Must be either SAML or OIDC') as AuthError;
+            error.statusCode = 400;
+            throw error;
         }
     }
 
     private validateOAuthConfig(config: OAuthClientConfig): void {
-        const requiredFields = ['clientId', 'name', 'grantTypes', 'redirectUris'] as const;
-        
+        const requiredFields = [
+            'clientId',
+            'name',
+            'grantTypes',
+            'redirectUris'
+        ];
+
         for (const field of requiredFields) {
             if (!config[field]) {
-                throw new Error(`Missing required field: ${field}`);
+                const error = new Error(`Missing required field: ${field}`) as AuthError;
+                error.statusCode = 400;
+                throw error;
             }
         }
 
-        const validGrantTypes = ['authorization_code', 'client_credentials', 'refresh_token'];
+        const validGrantTypes = [
+            'authorization_code',
+            'client_credentials',
+            'refresh_token'
+        ];
+
         for (const grant of config.grantTypes) {
             if (!validGrantTypes.includes(grant)) {
-                throw new Error(`Invalid grant type: ${grant}`);
+                const error = new Error(`Invalid grant type: ${grant}`) as AuthError;
+                error.statusCode = 400;
+                throw error;
             }
         }
     }

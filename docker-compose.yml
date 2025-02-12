@@ -79,34 +79,32 @@ services:
   wordpress:
     image: wordpress:latest
     depends_on:
-      - db
-      - pingaccess
+      - mariadb
     environment:
-      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_HOST: mariadb
       WORDPRESS_DB_USER: wordpress
       WORDPRESS_DB_PASSWORD: ${WP_DB_PASSWORD}
       WORDPRESS_DB_NAME: wordpress
       WORDPRESS_CONFIG_EXTRA: |
-        define('WP_PROXY_HOST', 'pingaccess');
-        define('WP_PROXY_PORT', '3000');
-        define('FORCE_SSL_ADMIN', true);
+        define('WP_SITEURL', 'https://dive25.com/portal');
+        define('WP_HOME', 'https://dive25.com/portal');
     volumes:
-      - wordpress_data:/var/www/html
+      - ./wordpress/plugins/dive25-integration:/var/www/html/wp-content/plugins/dive25-integration
       - ./wordpress/themes/dive25:/var/www/html/wp-content/themes/dive25
-      - ./wordpress/plugins/dive25-sso:/var/www/html/wp-content/plugins/dive25-sso
+      - wordpress_data:/var/www/html
     networks:
       - dive25-net
 
-  # MySQL database for WordPress
-  db:
-    image: mysql:5.7
+  mariadb:
+    image: mariadb:10.6
     environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: wordpress
       MYSQL_USER: wordpress
       MYSQL_PASSWORD: ${WP_DB_PASSWORD}
-      MYSQL_RANDOM_ROOT_PASSWORD: '1'
     volumes:
-      - db_data:/var/lib/mysql
+      - mariadb_data:/var/lib/mysql
+      - ./config/mariadb/initdb.d:/docker-entrypoint-initdb.d
     networks:
       - dive25-net
 
@@ -153,7 +151,7 @@ services:
       - ./src/backend:/app
       - /app/node_modules
     ports:
-      - "3001:3001"
+      - "6969:6969"
     depends_on:
       - mongodb
       - opa
@@ -180,7 +178,7 @@ services:
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
     ports:
-      - "3002:3000"
+      - "3002:4000"
     networks:
       - dive25-net
 
@@ -193,7 +191,7 @@ volumes:
   pingaccess-out:
   pingdirectory-out:
   wordpress_data:
-  db_data:
+  mariadb_data:
   mongodb_data:
   prometheus_data:
   grafana_data:

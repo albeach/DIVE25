@@ -7,6 +7,7 @@ dotenv.config();
 
 export const config = {
   env: process.env.NODE_ENV || 'development',
+  corsOrigins: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3000'],
   port: parseInt(process.env.PORT || '3001', 10),
   mongo: {
     uri: process.env.MONGO_URI || 'mongodb://localhost:27017/dive25',
@@ -20,11 +21,17 @@ export const config = {
     bindPassword: process.env.PING_DIRECTORY_BIND_PASSWORD || 'password',
     searchBase: process.env.PING_DIRECTORY_SEARCH_BASE || 'dc=dive25,dc=com',
   },
+  redis: {
+    host: process.env.REDIS_HOST || 'localhost',
+    port: parseInt(process.env.REDIS_PORT || '6379'),
+    password: process.env.REDIS_PASSWORD
+  },
   pingFederate: {
     baseUrl: process.env.PING_FEDERATE_BASE_URL || 'https://pingfederate:9031',
     apiUrl: process.env.PING_FEDERATE_API_URL || 'https://pingfederate:9999/pf-admin-api/v1',
     clientId: process.env.PING_FEDERATE_CLIENT_ID || 'dive25-api',
     clientSecret: process.env.PING_FEDERATE_CLIENT_SECRET || 'your-secret',
+    adminApiToken: process.env.PING_FEDERATE_ADMIN_TOKEN,
     oauth: oauthConfig,
     ldapAdapter: ldapAdapterConfig,
     authPolicy: authPolicyConfig,
@@ -35,6 +42,8 @@ export const config = {
       timeoutMinutes: 30
     },
     
+    corsOrigins: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3000'],
+
     // Federation settings
     federation: {
       baseProtocol: 'SAML',
