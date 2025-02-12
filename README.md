@@ -130,7 +130,7 @@ Content-Type: application/json
   "password": "securepassword",
   "email": "newuser@example.com",
   "coi": ["OpAlpha"],
-  "clearance": "NATO SECRET",
+  "clearance": "SECRET",
   "countryOfAffiliation": "USA"
 }
 ```
@@ -169,7 +169,7 @@ Content-Type: application/json
   "federationType": "SAML",
   "metadataUrl": "https://partner.example.com/metadata.xml",
   "coi": ["OpAlpha"],
-  "clearance": "NATO SECRET",
+  "clearance": "SECRET",
   "countryOfAffiliation": "USA"
 }
 ```
@@ -182,7 +182,7 @@ Content-Type: multipart/form-data
 {
   "file": "classified-report.pdf",
   "metadata": {
-    "classification": "NATO SECRET",
+    "classification": "SECRET",
     "coi": ["OpAlpha"],
     "countryOfAffiliation": "USA"
   }
@@ -197,7 +197,7 @@ Response:
 ```json
 {
   "documentId": "67890",
-  "classification": "NATO SECRET",
+  "classification": "SECRET",
   "caveats": ["NOFORN"],
   "allowedNations": ["USA", "GBR", "FRA"],
   "coi": ["OpAlpha"],
@@ -217,7 +217,7 @@ Content-Type: application/json
   "uid": "user123",
   "documentId": "67890",
   "coi": ["OpAlpha", "MissionX"],
-  "clearance": "NATO SECRET",
+  "clearance": "SECRET",
   "countryOfAffiliation": "USA"
 }
 ```
@@ -229,13 +229,13 @@ Content-Type: application/json
 {
   "user": {
     "uid": "user123",
-    "clearance": "NATO SECRET",
+    "clearance": "SECRET",
     "countryOfAffiliation": "USA",
     "coi": ["OpAlpha"]
   },
   "resource": {
     "id": "67890",
-    "classification": "NATO SECRET",
+    "classification": "SECRET",
     "allowedNations": ["USA", "GBR"],
     "coi": ["OpAlpha"]
   }
@@ -260,7 +260,7 @@ Content-Type: application/json
   "testScenario": "User with valid COI and clearance",
   "user": {
     "uid": "user123",
-    "clearance": "NATO SECRET",
+    "clearance": "SECRET",
     "countryOfAffiliation": "USA",
     "coi": ["OpAlpha"]
   },
