@@ -1,265 +1,320 @@
-# DIVE25 Deployment Runbooks
+# DIVE25 Deployment Runbook
+
+## Overview
+DIVE25 is a secure identity and access management platform integrating Ping Identity solutions with containerized deployments. This repository contains the deployment runbooks, configurations, and automation scripts for managing and maintaining the DIVE25 platform across different environments.
+
+In a multi-partner NATO environment, enabling secure, controlled access to a centralized repository of sensitive documents requires robust identity federation and Attribute-Based Access Control (ABAC). By adhering to NATO STANAGs (4774, 4778, and 5636) and NATO Security Policy, this report outlines a comprehensive approach for:
+
+- **Federated Authentication**: Integrating multiple Identity Providers (IdPs) through PingFederate.
+- **Standardized Attributes**: Ensuring attributes like classification level, caveats, nationality, and organizational affiliation are consistent and interoperable.
+- **OPA-based ABAC**: Using Open Policy Agent (OPA) and Rego policies to enforce fine-grained authorization decisions.
+- **Document Metadata Storage**: Using MongoDB for flexible and scalable metadata management.
+- **User-Friendly Front-End**: WordPress as a landing page, coupled with a Backend API to orchestrate access decisions.
+
+The outcome is a system where users authenticate via their own IdP, attributes are normalized, and access decisions are made dynamically based on classification, caveats, organizational affiliation, and other STANAG-driven rules before documents are accessible.
 
 ## Table of Contents
-1. [Pre-Deployment Checklist](#pre-deployment-checklist)
-2. [Initial Deployment](#initial-deployment)
-3. [Partner Integration](#partner-integration)
-4. [Environment Updates](#environment-updates)
-5. [Rollback Procedures](#rollback-procedures)
-6. [Emergency Procedures](#emergency-procedures)
-7. [Monitoring](#monitoring)
+1. [System Requirements](#system-requirements)
+2. [Installation](#installation)
+3. [Configuration](#configuration)
+4. [Deployment](#deployment)
+5. [API Endpoints](#api-endpoints)
+6. [Monitoring and Logging](#monitoring-and-logging)
+7. [Security](#security)
+8. [Backup and Recovery](#backup-and-recovery)
+9. [Troubleshooting](#troubleshooting)
+10. [License](#license)
 
-## Pre-Deployment Checklist
+---
 
-### Environment Requirements
-- [ ] Docker 24.0 or higher
-- [ ] Node.js 18.x or higher
-- [ ] Kubernetes 1.25 or higher
-- [ ] Helm 3.x
-- [ ] Ping Identity license files
-- [ ] Valid SSL certificates
-- [ ] Network access to all required services
+## System Requirements
+### Prerequisites
+- Docker 24.0 or higher
+- Kubernetes 1.25 or higher
+- Helm 3.x
+- Node.js 18.x or higher
+- Ping Identity license files
+- SSL certificates (self-signed for development, Let's Encrypt for production)
+- Access to MongoDB, Redis, and MariaDB databases
+- Network connectivity to required services
+- Open Policy Agent (OPA) installed
+- WordPress for front-end integration
 
-### Security Verification
-- [ ] SSL certificates validated
-- [ ] Secrets stored in secure vault
-- [ ] Network policies configured
-- [ ] IAM roles and permissions set
-- [ ] Security groups configured
-- [ ] Firewall rules verified
-
-### Data Management
-- [ ] Database backups completed
-- [ ] Restore procedures tested
-- [ ] Data migration scripts ready
-- [ ] Rollback points identified
-- [ ] Archive policies configured
-
-### Partner Preparation
-- [ ] Partners notified of deployment
-- [ ] Partner metadata exchanged
-- [ ] Federation connections tested
-- [ ] Contact information updated
-- [ ] Support procedures documented
-
-## Initial Deployment
-
-### 1. Repository Setup
+## Installation
+### 1. Clone Repository
 ```bash
-# Clone repository
 git clone https://github.com/organization/dive25.git
 cd dive25
-
-# Create necessary directories
-mkdir -p {src,docker,config,licenses}
 ```
 
-### 2. License Configuration
+### 2. Set Up Environment Variables
 ```bash
-# Copy license files
-cp /path/to/pingfederate.lic licenses/
-cp /path/to/pingaccess.lic licenses/
-cp /path/to/pingdirectory.lic licenses/
+cp .env.example .env
 ```
-
-### 3. Environment Configuration
-```bash
-# Create environment file
-cat > .env << EOL
-NODE_ENV=production
-PORT=3001
+Edit `.env` and update the required values:
+```
 PING_IDENTITY_DEVOPS_USER=your_username
 PING_IDENTITY_DEVOPS_KEY=your_key
+WP_DB_PASSWORD=your_database_password
 MONGO_URI=mongodb://mongodb:27017/dive25
-REDIS_URL=redis://redis:6379
-DOMAIN=dive25.com
-EOL
+OPA_URL=http://opa:8181
 ```
 
-### 4. Infrastructure Deployment
+### 3. Install Dependencies
 ```bash
-# Deploy Kubernetes namespace
-kubectl apply -f k8s/namespace.yaml
+npm install
+```
 
-# Setup Helm repo
+---
+
+## Configuration
+### Kubernetes Configuration
+Modify the necessary Kubernetes configuration files in `k8s/` before deployment.
+
+### Docker Configuration
+Ensure that Docker is set up correctly and required images are available.
+```bash
+docker-compose -f docker-compose.dev.yml pull
+docker-compose -f docker-compose.dev.yml up -d
+```
+
+### Helm Setup
+Ensure Helm charts are configured before deploying.
+```bash
 helm repo add pingidentity https://helm.pingidentity.com/
-
-# Deploy PingFederate
-helm upgrade --install pingfederate pingidentity/pingfederate \
-  --namespace dive25 \
-  --values helm/values-pingfederate.yaml
-
-# Deploy PingAccess
-helm upgrade --install pingaccess pingidentity/pingaccess \
-  --namespace dive25 \
-  --values helm/values-pingaccess.yaml
-
-# Deploy Backend API
-helm upgrade --install dive25-api ./helm/api \
-  --namespace dive25 \
-  --values helm/values-api.yaml
+helm repo update
 ```
 
-## Partner Integration
-
-### 1. Partner Onboarding
+### OPA Rego Policies
+Ensure the access policies align with NATO STANAGs 4774, 4778, and 5636.
 ```bash
-# Validate partner metadata
-curl -X POST https://dive25.com/api/partners/validate-metadata \
-  -H "Content-Type: application/json" \
-  -d '{
-    "metadataUrl": "https://partner.example.com/metadata.xml"
-  }'
-
-# Create partner connection
-curl -X POST https://dive25.com/api/partners/onboard \
-  -H "Content-Type: application/json" \
-  -d '{
-    "partnerId": "PARTNER001",
-    "partnerName": "Example Partner",
-    "federationType": "SAML",
-    "metadata": {
-      "url": "https://partner.example.com/metadata.xml"
-    }
-  }'
+cp policies/access_policy.rego /path/to/opa/
 ```
 
-### 2. Partner Verification
+---
+
+## Deployment
+### Development Deployment
 ```bash
-# Test federation connection
-curl -X POST https://dive25.com/api/partners/test-connection \
-  -H "Content-Type: application/json" \
-  -d '{
-    "partnerId": "PARTNER001"
-  }'
+bash deploy.sh --env dev --ping-user your_username --ping-key your_key
 ```
 
-## Environment Updates
-
-### 1. Pre-Update Tasks
+### Production Deployment
 ```bash
-# Backup configurations
-kubectl exec -n dive25 pingfederate-0 -- backup.sh
-kubectl exec -n dive25 pingaccess-0 -- backup.sh
-
-# Backup database
-kubectl exec -n dive25 mongodb-0 -- mongodump --archive=/tmp/backup.gz --gzip
+bash deploy.sh --env prod --ping-user your_username --ping-key your_key
 ```
 
-### 2. Update Deployment
+### Infrastructure Deployment
 ```bash
-# Update Helm charts
-helm dependency update ./helm
-
-# Apply updates
-helm upgrade dive25 ./helm \
-  --namespace dive25 \
-  --values helm/values-prod.yaml
+kubectl apply -f k8s/namespace.yaml
+helm upgrade --install pingfederate pingidentity/pingfederate --namespace dive25 --values helm/values-pingfederate.yaml
 ```
 
-## Rollback Procedures
+---
 
-### 1. Quick Rollback
+## API Endpoints
+### User Authentication
+Authenticate users against federated IdPs using PingFederate.
 ```bash
-# Rollback Helm releases
-helm rollback pingfederate
-helm rollback pingaccess
-helm rollback dive25-api
-
-# Verify services
-kubectl get pods -n dive25
-kubectl logs -n dive25 -l app=dive25-api
+POST /api/auth/login
+Content-Type: application/json
+{
+  "username": "user@example.com",
+  "password": "securepassword"
+}
+```
+Response:
+```json
+{
+  "token": "jwt-token",
+  "expiresIn": 3600
+}
 ```
 
-### 2. Database Rollback
+### Partner Metadata Validation
 ```bash
-# Restore from backup
-kubectl exec -n dive25 mongodb-0 -- mongorestore --archive=/tmp/backup.gz --gzip
+POST /api/partners/validate-metadata
+Content-Type: application/json
+{
+  "metadataUrl": "https://partner.example.com/metadata.xml"
+}
+```
+Response:
+```json
+{
+  "valid": true,
+  "message": "Metadata is valid"
+}
 ```
 
-## Emergency Procedures
-
-### 1. Service Isolation
+### Create Partner Connection
 ```bash
-# Scale down affected service
-kubectl scale deployment affected-service --replicas=0 -n dive25
-
-# Enable maintenance mode
-kubectl apply -f k8s/configs/maintenance-mode.yaml
+POST /api/partners/onboard
+Content-Type: application/json
+{
+  "partnerId": "PARTNER001",
+  "partnerName": "Example Partner",
+  "federationType": "SAML",
+  "metadata": {
+    "url": "https://partner.example.com/metadata.xml"
+  }
+}
+```
+Response:
+```json
+{
+  "success": true,
+  "message": "Partner onboarded successfully"
+}
 ```
 
-### 2. Federation Emergency
+### Test Federation Connection
 ```bash
-# Disable federation temporarily
-kubectl scale deployment pingfederate --replicas=0 -n dive25
-
-# Enable emergency access
-kubectl apply -f k8s/configs/emergency-access.yaml
+POST /api/partners/test-connection
+Content-Type: application/json
+{
+  "partnerId": "PARTNER001"
+}
+```
+Response:
+```json
+{
+  "status": "success",
+  "message": "Federation connection successful"
+}
 ```
 
-### 3. Recovery Steps
-1. Identify root cause
-2. Apply necessary fixes
-3. Test in isolation
-4. Gradually restore services
-5. Verify functionality
-6. Update documentation
-
-## Monitoring
-
-### 1. Health Checks
+### Document Access Validation
+Validate access permissions before allowing document retrieval.
 ```bash
-# Check service health
+POST /api/documents/access
+Content-Type: application/json
+{
+  "userId": "12345",
+  "documentId": "67890",
+  "coi": ["OpAlpha", "MissionX"]
+}
+```
+Response:
+```json
+{
+  "access": true,
+  "reason": "User has required clearance level and COI"
+}
+```
+
+### Document Metadata Retrieval
+Retrieve metadata for controlled documents.
+```bash
+GET /api/documents/metadata/67890
+```
+Response:
+```json
+{
+  "documentId": "67890",
+  "classification": "NATO SECRET",
+  "caveats": ["NOFORN"],
+  "allowedNations": ["USA", "GBR", "FRA"],
+  "coi": ["OpAlpha"]
+}
+```
+
+### Policy Evaluation via OPA
+Enforce ABAC rules using OPA.
+```bash
+POST /api/authorization/evaluate
+Content-Type: application/json
+{
+  "user": {
+    "id": "12345",
+    "clearance": "NATO SECRET",
+    "nationality": "USA",
+    "coi": ["OpAlpha"]
+  },
+  "resource": {
+    "id": "67890",
+    "classification": "NATO SECRET",
+    "allowedNations": ["USA", "GBR"],
+    "coi": ["OpAlpha"]
+  }
+}
+```
+Response:
+```json
+{
+  "allow": true
+}
+```
+
+---
+
+## Monitoring and Logging
+### Health Checks
+```bash
 kubectl exec -n dive25 pingfederate-0 -- health-check.sh
-kubectl exec -n dive25 pingaccess-0 -- health-check.sh
-
-# Verify API health
 curl https://dive25.com/health
 ```
 
-### 2. Log Analysis
+### Log Collection
 ```bash
-# Collect logs
 kubectl logs -n dive25 -l app=dive25-api --tail=1000
 kubectl logs -n dive25 -l app=pingfederate --tail=1000
 ```
 
-### 3. Metrics Collection
+### Prometheus and Grafana
 ```bash
-# Get Prometheus metrics
 curl https://dive25.com/metrics
-
-# Check Grafana dashboards
 open https://grafana.dive25.com/d/federation-overview
 ```
 
-### 4. Alerts
-- Monitor Slack channel #dive25-alerts
-- Check email alerts at ops@dive25.com
-- Review PagerDuty incidents
+---
 
-## Additional Notes
+## Security
+### Certificate Management
+- Self-signed certificates for development (`certificates/dev/`)
+- Let's Encrypt for production (`certificates/prod/`)
+- Automated renewal via `certbot`
 
-### Security Considerations
-- Always rotate credentials after emergency access
-- Regularly update SSL certificates
-- Review security logs daily
-- Update security policies as needed
+### Access Control
+- Uses Open Policy Agent (OPA) for Attribute-Based Access Control (ABAC)
+- Configured via `access_policy.rego`
+- Integrates with PingFederate for federated authentication
 
-### Performance Optimization
-- Monitor resource utilization
-- Adjust scaling parameters
-- Optimize database queries
-- Review caching strategies
+### Security Scanning
+- Automated OAuth security checks (`scripts/security/oauth-security-scanner.ts`)
+- SAML configuration analyzer (`scripts/security/saml-config-analyzer.ts`)
 
-### Compliance
-- Maintain audit logs
-- Document all changes
-- Follow change management procedures
-- Update security documentation
+---
 
-### Support
-- Emergency Contact: +1-555-0123
-- Slack: #dive25-support
-- Email: support@dive25.com
-- Documentation: https://docs.dive25.com
+## Backup and Recovery
+### Database Backups
+```bash
+kubectl exec -n dive25 mongodb-0 -- mongodump --archive=/tmp/backup.gz --gzip
+```
+
+### Restore from Backup
+```bash
+kubectl exec -n dive25 mongodb-0 -- mongorestore --archive=/tmp/backup.gz --gzip
+```
+
+### Rollback Procedures
+```bash
+helm rollback pingfederate
+helm rollback pingaccess
+kubectl rollout restart deployment/api -n dive25
+```
+
+---
+
+## Troubleshooting
+### Common Issues
+- **Docker container fails to start:** Ensure environment variables are set correctly.
+- **Helm deployment fails:** Run `helm dependency update ./helm` and try again.
+- **Certificate issues:** Ensure SSL certificates are valid and properly mounted.
+- **Service not reachable:** Check firewall rules and network policies.
+
+---
+
+## License
+DIVE25 is licensed under [MIT License](LICENSE).
+
