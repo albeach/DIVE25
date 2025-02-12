@@ -1,43 +1,43 @@
+// src/services/DatabaseService.ts
+
 import { MongoClient, Db, Collection } from 'mongodb';
 import { config } from '../config/config';
-import { Document } from '../models/Document';
 
 export class DatabaseService {
-  private static instance: DatabaseService;
-  private client: MongoClient;
-  private db: Db | null = null;
+    private static instance: DatabaseService;
+    private client: MongoClient;
+    private db: Db | null = null;
 
-  private constructor() {
-    this.client = new MongoClient(config.mongo.uri);
-  }
-
-  public static getInstance(): DatabaseService {
-    if (!DatabaseService.instance) {
-      DatabaseService.instance = new DatabaseService();
+    private constructor() {
+        this.client = new MongoClient(config.mongo.uri);
     }
-    return DatabaseService.instance;
-  }
 
-  async connect(): Promise<void> {
-    try {
-      await this.client.connect();
-      this.db = this.client.db('dive25');
-      console.log('Connected to MongoDB');
-    } catch (error) {
-      console.error('MongoDB connection error:', error);
-      throw error;
+    public static getInstance(): DatabaseService {
+        if (!DatabaseService.instance) {
+            DatabaseService.instance = new DatabaseService();
+        }
+        return DatabaseService.instance;
     }
-  }
 
-  async getDocument(id: string): Promise<Document | null> {
-    if (!this.db) throw new Error('Database not connected');
-    const collection = this.db.collection<Document>('documents');
-    return await collection.findOne({ _id: new ObjectId(id) });
-  }
+    async connect(): Promise<void> {
+        try {
+            await this.client.connect();
+            this.db = this.client.db('dive25');
+            console.log('Connected to MongoDB');
+        } catch (error) {
+            console.error('MongoDB connection error:', error);
+            throw error;
+        }
+    }
 
-  async searchDocuments(query: any): Promise<Document[]> {
-    if (!this.db) throw new Error('Database not connected');
-    const collection = this.db.collection<Document>('documents');
-    return await collection.find(query).toArray();
-  }
+    getCollection<T>(name: string): Collection<T> {
+        if (!this.db) {
+            throw new Error('Database not connected');
+        }
+        return this.db.collection<T>(name);
+    }
+
+    async disconnect(): Promise<void> {
+        await this.client.close();
+    }
 }

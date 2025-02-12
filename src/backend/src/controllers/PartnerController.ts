@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { PartnerConfig, OAuthClientConfig } from '../types/partner';
 import { FederationPartnerService, PartnerConfig } from '../services/FederationPartnerService';
 import { OAuthClientService, OAuthClientConfig } from '../services/OAuthClientService';
 import { MetadataValidationService } from '../services/MetadataValidationService';
@@ -30,15 +31,16 @@ export class PartnerController {
 
     async onboardPartner(req: Request, res: Response): Promise<void> {
         try {
-            const { partnerConfig, oauthConfig } = req.body;
+            const partnerConfig = req.body.partnerConfig as PartnerConfig;
+            const oauthConfig = req.body.oauthConfig as OAuthClientConfig;
 
             // Validate request body
             this.validatePartnerConfig(partnerConfig);
             this.validateOAuthConfig(oauthConfig);
 
-            // Validate metadata first
+            // Validate metadata
             const validationResult = await this.metadataValidator.validateMetadata(
-                partnerConfig.metadata.url
+                partnerConfig.metadata.url || ''
             );
 
             if (!validationResult.valid) {
@@ -69,11 +71,14 @@ export class PartnerController {
                 oauthClient,
                 partnerConnection
             });
+
         } catch (error) {
-            this.logger.error('Partner onboarding error', { error });
+            this.logger.error('Partner onboarding error', { 
+                error: error instanceof Error ? error.message : 'Unknown error' 
+            });
             res.status(500).json({
                 error: 'Partner onboarding failed',
-                details: error.message
+                details: error instanceof Error ? error.message : 'Unknown error'
             });
         }
     }
@@ -228,7 +233,8 @@ export class PartnerController {
     }
 
     private validatePartnerConfig(config: PartnerConfig): void {
-        const requiredFields = ['partnerId', 'partnerName', 'federationType', 'metadata'];
+        const requiredFields = ['partnerId', 'partnerName', 'federationType', 'metadata'] as const;
+        
         for (const field of requiredFields) {
             if (!config[field]) {
                 throw new Error(`Missing required field: ${field}`);
@@ -241,7 +247,8 @@ export class PartnerController {
     }
 
     private validateOAuthConfig(config: OAuthClientConfig): void {
-        const requiredFields = ['clientId', 'name', 'grantTypes', 'redirectUris'];
+        const requiredFields = ['clientId', 'name', 'grantTypes', 'redirectUris'] as const;
+        
         for (const field of requiredFields) {
             if (!config[field]) {
                 throw new Error(`Missing required field: ${field}`);

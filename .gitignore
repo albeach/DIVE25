@@ -77,3 +77,10 @@ docker/monitoring/grafana/plugins/grafana-lokiexplore-app/1759fd27b2c9f73dea05.w
 ./certificates/prod/chain.csr.pem.txt
 ./certificates/prod/chain.csr.pem.txt.txt
 .docker/monitoring/grafana/*
+./certificates/prod/*
+# Add to .gitignore
+.env
+*.env
+.env.*
+!.env.example
+src/backend/src/node_modules/*

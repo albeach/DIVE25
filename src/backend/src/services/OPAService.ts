@@ -1,89 +1,54 @@
+// src/services/OPAService.ts
+
 import axios from 'axios';
 import { config } from '../config/config';
-
-export interface UserAttributes {
-  uniqueIdentifier: string;
-  countryOfAffiliation: string;
-  clearance: string;
-  coiTags?: string[];
-  lacvCode?: string;
-}
-
-export interface ResourceAttributes {
-  clearance: string;
-  releasableTo: string[];
-  coiTags?: string[];
-  lacvCode?: string;
-}
-
-export interface OPAInput {
-  user: UserAttributes;
-  resource: ResourceAttributes;
-}
+import { LoggerService } from './LoggerService';
+import { OPAInput, OPAResult } from '../types/opa';
 
 export class OPAService {
-  private static instance: OPAService;
+    private static instance: OPAService;
+    private logger: LoggerService;
 
-  private constructor() {}
-
-  public static getInstance(): OPAService {
-    if (!OPAService.instance) {
-      OPAService.instance = new OPAService();
+    private constructor() {
+        this.logger = LoggerService.getInstance();
     }
-    return OPAService.instance;
-  }
 
-  async evaluateAccess(user: UserAttributes, resource: ResourceAttributes): Promise<{
-    allow: boolean;
-    reason?: string;
-  }> {
-    try {
-      const input: OPAInput = {
-        user,
-        resource
-      };
-
-      const response = await axios.post(config.opa.url, { input });
-      
-      if (!response.data.result) {
-        return {
-          allow: false,
-          reason: 'Policy evaluation failed'
-        };
-      }
-
-      return {
-        allow: response.data.result.allow === true,
-        reason: response.data.result.reason
-      };
-    } catch (error) {
-      console.error('OPA evaluation error:', error);
-      return {
-        allow: false,
-        reason: 'Policy evaluation error'
-      };
+    public static getInstance(): OPAService {
+        if (!OPAService.instance) {
+            OPAService.instance = new OPAService();
+        }
+        return OPAService.instance;
     }
-  }
 
-  async validateAttributes(attributes: UserAttributes): Promise<{
-    valid: boolean;
-    missingAttributes?: string[];
-  }> {
-    try {
-      const response = await axios.post(`${config.opa.url}/validate_attributes`, {
-        input: { user: attributes }
-      });
+    async evaluateAccess(user: OPAInput['user'], resource: OPAInput['resource'], action?: string): Promise<OPAResult> {
+        try {
+            const input: OPAInput = {
+                user,
+                resource,
+                action
+            };
 
-      return {
-        valid: response.data.result.valid === true,
-        missingAttributes: response.data.result.missing_attrs
-      };
-    } catch (error) {
-      console.error('Attribute validation error:', error);
-      return {
-        valid: false,
-        missingAttributes: []
-      };
+            const response = await axios.post<{result: OPAResult}>(config.opa.url, { input });
+            
+            if (!response.data.result) {
+                return {
+                    allow: false,
+                    reason: 'Policy evaluation failed'
+                };
+            }
+
+            return response.data.result;
+        } catch (error) {
+            this.logger.error('OPA evaluation error', { 
+                error: error instanceof Error ? error.message : 'Unknown error',
+                user: user.uniqueIdentifier,
+                resource: resource.clearance 
+            });
+            
+            return {
+                allow: false,
+                reason: 'Policy evaluation error'
+            };
+        }
     }
-  }
 }

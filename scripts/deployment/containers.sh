@@ -4,41 +4,12 @@
 # It handles container creation, health checks, scaling, and cleanup for both
 # development and production environments.
 
-verify_directory_structure() {
-    log "INFO" "Verifying directory structure"
-
-    local required_files=(
-        "docker/docker-compose.yml"
-        "docker/docker-compose.${environment}.yml"
-    )
-
-    for file in "${required_files[@]}"; do
-        if [[ ! -f "${SCRIPT_DIR}/${file}" ]]; then
-            log "ERROR" "Required file not found: ${file}"
-            log "INFO" "Please ensure all required files are in place before deployment"
-            log "INFO" "Expected location: ${SCRIPT_DIR}/${file}"
-            exit 1
-        fi
-    done
-}
-
 check_docker_auth() {
     log "INFO" "Checking Docker authentication status"
     
     if ! docker info >/dev/null 2>&1; then
         log "ERROR" "Docker daemon is not running"
         exit 1
-    fi
-
-    # Check if we can pull a simple public image
-    if ! docker pull hello-world >/dev/null 2>&1; then
-        log "WARN" "Unable to pull Docker images. Attempting to log in..."
-        
-        # Try docker login if needed
-        if ! docker login; then
-            log "ERROR" "Failed to authenticate with Docker Hub"
-            exit 1
-        fi
     fi
 }
 
@@ -61,28 +32,15 @@ EOL
     else
         # Linux configuration
         cat > ~/.docker/config.json << EOL
-        # Ensure proper permissions
-        chmod 600 ~/.docker/config.json
-        
-        # Set up Docker credential helper
-        mkdir -p ~/Library/Containers/com.docker.docker/Data/credentials
-        chmod 700 ~/Library/Containers/com.docker.docker/Data/credentials
-    else
-        # Linux configuration
-        cat > ~/.docker/config.json << EOL
 {
     "experimental": "enabled",
     "features": {
-        "buildkit": true
+        "buildkit": "1"
     }
 }
 EOL
     fi
     chmod 600 ~/.docker/config.json
-
-    # Create .env file directory with proper permissions
-    sudo mkdir -p "${SCRIPT_DIR}/docker"
-    sudo chown $(whoami) "${SCRIPT_DIR}/docker"
 }
 
 deploy_docker_containers() {
@@ -96,116 +54,41 @@ deploy_docker_containers() {
         exit 1
     fi
 
-    # Create docker config directory
-    mkdir -p ~/.docker
-
-    # Setup platform-specific Docker configuration
-    if [[ "$(uname)" == "Darwin" ]]; then
-        # MacOS configuration
-        cat > ~/.docker/config.json << EOL
-{
-    "credsStore": "osxkeychain",
-    "experimental": "enabled",
-    "features": {
-        "buildkit": "1"
-    }
-}
-EOL
-    else
-        # Linux configuration
-        cat > ~/.docker/config.json << EOL
-{
-    "experimental": "enabled",
-    "features": {
-        "buildkit": "1"
-    }
-}
-EOL
-    fi
-    chmod 600 ~/.docker/config.json
-
     # Set environment variables
     export COMPOSE_PROJECT_NAME="dive25"
     export DOCKER_BUILDKIT=1
     export COMPOSE_DOCKER_CLI_BUILD=1
-    
-    # Ensure Prometheus config directory exists
-    sudo mkdir -p "${SCRIPT_DIR}/docker/monitoring/prometheus"
-    sudo cp "${SCRIPT_DIR}/config/prometheus.yml" "${SCRIPT_DIR}/docker/monitoring/prometheus/"
-    sudo chown -R $(whoami) "${SCRIPT_DIR}/docker/monitoring"
 
     # Create .env file for Docker Compose with proper permissions
-    sudo mkdir -p "${SCRIPT_DIR}/docker"
-    cat << EOL | sudo tee "${SCRIPT_DIR}/docker/.env" > /dev/null
+    cat << EOL > "${SCRIPT_DIR}/.env"
 PING_IDENTITY_DEVOPS_USER=${PING_IDENTITY_DEVOPS_USER}
 PING_IDENTITY_DEVOPS_KEY=${PING_IDENTITY_DEVOPS_KEY}
-SERVER_PROFILE_URL=https://${PING_IDENTITY_DEVOPS_USER}:${PING_IDENTITY_DEVOPS_KEY}@github.com/your-org/dive25.git
-SERVER_PROFILE_BRANCH=main
 COMPOSE_PROJECT_NAME=dive25
 EOL
-    sudo chown $(whoami) "${SCRIPT_DIR}/docker/.env"
-    chmod 600 "${SCRIPT_DIR}/docker/.env"
+    chmod 600 "${SCRIPT_DIR}/.env"
 
-    # Stop and remove existing containers
-    docker-compose --project-directory "${SCRIPT_DIR}/docker" \
-        -f "${SCRIPT_DIR}/docker/docker-compose.yml" \
-        -f "${SCRIPT_DIR}/docker/docker-compose.${environment}.yml" \
-        down --remove-orphans
-
-    # Pull and start containers
+    # Deploy containers
     if [[ "$(uname)" == "Darwin" ]]; then
         # MacOS: run without sudo
-        DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 docker-compose \
-            --project-directory "${SCRIPT_DIR}/docker" \
-            -f "${SCRIPT_DIR}/docker/docker-compose.yml" \
-            -f "${SCRIPT_DIR}/docker/docker-compose.${environment}.yml" \
-            pull
-
-        DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 docker-compose \
-            --project-directory "${SCRIPT_DIR}/docker" \
-            -f "${SCRIPT_DIR}/docker/docker-compose.yml" \
-            -f "${SCRIPT_DIR}/docker/docker-compose.${environment}.yml" \
-            up -d
+        docker-compose -f "${SCRIPT_DIR}/docker-compose.yml" down --remove-orphans
+        docker-compose -f "${SCRIPT_DIR}/docker-compose.yml" pull
+        docker-compose -f "${SCRIPT_DIR}/docker-compose.yml" up -d
     else
-        # Linux: use sudo if needed
-        sudo -E DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 docker-compose \
-            --project-directory "${SCRIPT_DIR}/docker" \
-            -f "${SCRIPT_DIR}/docker/docker-compose.yml" \
-            -f "${SCRIPT_DIR}/docker/docker-compose.${environment}.yml" \
-            pull
-
-        sudo -E DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 docker-compose \
-            --project-directory "${SCRIPT_DIR}/docker" \
-            -f "${SCRIPT_DIR}/docker/docker-compose.yml" \
-            -f "${SCRIPT_DIR}/docker/docker-compose.${environment}.yml" \
-            up -d
+        # Linux: use sudo
+        sudo docker-compose -f "${SCRIPT_DIR}/docker-compose.yml" down --remove-orphans
+        sudo docker-compose -f "${SCRIPT_DIR}/docker-compose.yml" pull
+        sudo docker-compose -f "${SCRIPT_DIR}/docker-compose.yml" up -d
     fi
 
     # Check if deployment was successful
     if [ $? -ne 0 ]; then
         log "ERROR" "Failed to deploy containers. Checking Docker logs..."
-        docker-compose --project-directory "${SCRIPT_DIR}/docker" \
-            -f "${SCRIPT_DIR}/docker/docker-compose.yml" \
-            -f "${SCRIPT_DIR}/docker/docker-compose.${environment}.yml" \
-            logs
+        docker-compose -f "${SCRIPT_DIR}/docker-compose.yml" logs
         exit 1
     fi
 
-    verify_directory_structure
-
-    # First, we validate the environment has all necessary resources
+    # Validate requirements and verify deployment
     validate_container_requirements "$environment"
-    
-    # Handle any existing containers gracefully
-    handle_existing_containers "$environment"
-    
-    # Deploy the core infrastructure containers
-    deploy_core_containers "$environment"
-    
-    # Deploy the federation services
-    deploy_federation_services "$environment"
-    
-    # Verify the deployment
     verify_container_deployment "$environment"
 }
 
@@ -214,24 +97,7 @@ validate_container_requirements() {
     
     log "INFO" "Validating container deployment requirements"
     
-    # We ensure all required Docker images are available
-    local required_images=(
-        "pingidentity/pingfederate:12.2.0-latest"
-        "pingidentity/pingaccess:8.2.0-latest"
-        "pingidentity/pingdirectory:10.2.0.0-latest"
-    )
-    
-    for image in "${required_images[@]}"; do
-        if ! docker image inspect "$image" >/dev/null 2>&1; then
-            log "INFO" "Pulling required image: $image"
-            if ! docker pull "$image"; then
-                log "ERROR" "Failed to pull image: $image"
-                exit 1
-            fi
-        fi
-    done
-    
-    # Validate minimum resource requirements
+    # Check system resources
     check_system_resources
 }
 
@@ -280,100 +146,13 @@ check_system_resources() {
     fi
 }
 
-handle_existing_containers() {
-    local environment=$1
-    
-    log "INFO" "Checking for existing containers"
-    
-    # Get list of our containers
-    local existing_containers=$(docker ps -a --filter "label=com.dive25.environment=${environment}" --format "{{.Names}}")
-    
-    if [ ! -z "$existing_containers" ]; then
-        log "INFO" "Found existing containers. Performing graceful shutdown"
-        
-        # Gracefully stop each container
-        for container in $existing_containers; do
-            log "INFO" "Stopping container: $container"
-            docker stop -t 30 "$container" || {
-                log "WARN" "Failed to stop container gracefully: $container"
-                docker kill "$container"
-            }
-        done
-        
-        # Remove stopped containers
-        docker container prune -f --filter "label=com.dive25.environment=${environment}"
-    fi
-}
-
-deploy_core_containers() {
-    local environment=$1
-    
-    log "INFO" "Deploying core infrastructure containers"
-    
-    # Set environment-specific compose file
-    local compose_file="${SCRIPT_DIR}/docker/docker-compose.yml"
-    local env_compose_file="${SCRIPT_DIR}/docker/docker-compose.${environment}.yml"
-    
-    # Deploy using docker-compose
-    if ! docker-compose -f "$compose_file" -f "$env_compose_file" up -d; then
-        log "ERROR" "Failed to deploy core containers"
-        exit 1
-    fi
-    
-    # Wait for core services to be healthy
-    wait_for_core_services
-}
-
-deploy_federation_services() {
-    local environment=$1
-    
-    log "INFO" "Deploying federation services"
-    
-    # Configure PingFederate
-    docker exec pingfederate sh -c "
-        cp /opt/in/instance/server/default/conf/* /opt/out/instance/server/default/conf/ &&
-        /opt/out/instance/bin/run.sh -c"
-    
-    # Configure PingAccess
-    docker exec pingaccess sh -c "
-        cp /opt/in/instance/conf/* /opt/out/instance/conf/ &&
-        /opt/out/instance/bin/run.sh -c"
-    
-    # Initialize PingDirectory
-    docker exec pingdirectory sh -c "
-        /opt/out/instance/bin/manage-profile setup"
-}
-
-wait_for_core_services() {
-    log "INFO" "Waiting for core services to be ready"
-    
-    local services=("pingfederate" "pingaccess" "pingdirectory")
-    local timeout=300  # 5 minutes timeout
-    local interval=10  # Check every 10 seconds
-    
-    for service in "${services[@]}"; do
-        local elapsed=0
-        while [ $elapsed -lt $timeout ]; do
-            if docker exec $service /opt/out/instance/bin/status.sh > /dev/null 2>&1; then
-                log "INFO" "$service is ready"
-                break
-            fi
-            
-            elapsed=$((elapsed + interval))
-            if [ $elapsed -eq $timeout ]; then
-                log "ERROR" "Timeout waiting for $service to be ready"
-                exit 1
-            fi
-            
-            sleep $interval
-        done
-    done
-}
-
 verify_container_deployment() {
     local environment=$1
     
     log "INFO" "Verifying container deployment"
+    
+    # Wait for services to be ready
+    wait_for_services
     
     # Check container health status
     local unhealthy_containers=$(docker ps --filter "health=unhealthy" --format "{{.Names}}")
@@ -386,6 +165,35 @@ verify_container_deployment() {
     verify_service_connectivity
     
     log "INFO" "Container deployment verification completed successfully"
+}
+
+wait_for_services() {
+    log "INFO" "Waiting for services to be ready"
+    
+    # Get actual container names from docker ps
+    local containers=$(docker ps --format '{{.Names}}' | grep 'dive25')
+    local timeout=300  # 5 minutes timeout
+    local interval=10  # Check every 10 seconds
+    
+    for container in $containers; do
+        if [[ $container == *"pingfederate"* ]] || [[ $container == *"pingaccess"* ]] || [[ $container == *"pingdirectory"* ]]; then
+            local elapsed=0
+            while [ $elapsed -lt $timeout ]; do
+                if docker exec $container /opt/out/instance/bin/status.sh > /dev/null 2>&1; then
+                    log "INFO" "${container} is ready"
+                    break
+                fi
+                
+                elapsed=$((elapsed + interval))
+                if [ $elapsed -eq $timeout ]; then
+                    log "ERROR" "Timeout waiting for ${container} to be ready"
+                    exit 1
+                fi
+                
+                sleep $interval
+            done
+        fi
+    done
 }
 
 verify_service_connectivity() {
@@ -406,18 +214,4 @@ verify_service_connectivity() {
         log "ERROR" "Cannot connect to PingDirectory LDAPS"
         exit 1
     }
-}
-
-# Function to scale services if needed
-scale_containers() {
-    local environment=$1
-    local service=$2
-    local replicas=$3
-    
-    if [[ "$environment" == "prod" ]]; then
-        log "INFO" "Scaling $service to $replicas replicas"
-        kubectl scale deployment $service --replicas=$replicas -n dive25
-    else
-        log "WARN" "Scaling not supported in development environment"
-    fi
 }

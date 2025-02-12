@@ -1,4 +1,4 @@
-// src/backend/src/models/Document.ts
+// src/types/document/index.d.ts
 
 import { ObjectId } from 'mongodb';
 
@@ -6,10 +6,10 @@ export interface Document {
     _id?: ObjectId;
     title: string;
     content: {
-        data: Buffer,         // The actual document content stored in MongoDB
-        mimeType: string,
-        size: number,
-        hash: string         // For integrity verification
+        data: Buffer;
+        mimeType: string;
+        size: number;
+        hash: string;
     };
     metadata: {
         createdAt: Date;
@@ -25,11 +25,6 @@ export interface Document {
         coiTags: string[];
         lacvCode?: string;
     };
-    accessControl: {
-        ownerOrganization: string;
-        accessGroups: string[];
-        handlingInstructions?: string;
-    };
 }
 
 export enum Classification {
@@ -40,20 +35,9 @@ export enum Classification {
     COSMIC_TOP_SECRET = "COSMIC TOP SECRET"
 }
 
-export const ValidClassifications = Object.values(Classification);
-
-export const ValidReleasabilityMarkers = [
-    "NATO",
-    "EU",
-    "FVEY",
-    "CCEB",
-    "ACGU"
-] as const;
-
-export const ValidCoiTags = [
-    "OpAlpha",
-    "OpBravo",
-    "OpCharlie",
-    "MissionX",
-    "MissionY"
-] as const;
+export interface DocumentSearchQuery {
+    searchText?: string;
+    classification?: Classification;
+    coiTags?: string[];
+    limit?: number;
+}

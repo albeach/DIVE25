@@ -17,6 +17,12 @@ source "${SCRIPT_DIR}/scripts/setup/monitoring.sh"
 source "${SCRIPT_DIR}/scripts/deployment/profiles.sh"
 source "${SCRIPT_DIR}/scripts/deployment/containers.sh"
 
+export WP_DB_PASSWORD=Dive25Admin123!
+export MYSQL_ROOT_PASSWORD=Dive25Admin123!
+export MONGO_ROOT_USER=dive25mongo
+export MONGO_ROOT_PASSWORD=Dive25Mongo123!
+export GRAFANA_ADMIN_PASSWORD=Dive25Admin123!
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -40,6 +46,8 @@ log() {
 check_prerequisites() {
     log "INFO" "Checking deployment prerequisites..."
     
+    check_required_env_vars
+
     # Check required tools
     local required_tools=("docker" "kubectl" "helm" "openssl" "node")
     for tool in "${required_tools[@]}"; do
@@ -61,6 +69,22 @@ check_prerequisites() {
             exit 1
         fi
     done
+}
+
+# New function to check required environment variables
+check_required_env_vars() {
+  local missing=false
+  local required_vars=("WP_DB_PASSWORD" "MYSQL_ROOT_PASSWORD" "MONGO_ROOT_USER" "MONGO_ROOT_PASSWORD")
+  for var in "${required_vars[@]}"; do
+    if [ -z "${!var}" ]; then
+      log "ERROR" "Required environment variable ${var} is not set."
+      missing=true
+    fi
+  done
+  if [ "$missing" = true ]; then
+    log "ERROR" "One or more required environment variables are missing. Aborting deployment."
+    exit 1
+  fi
 }
 
 # Function to deploy development environment
