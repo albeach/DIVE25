@@ -117,7 +117,7 @@ helm upgrade --install pingfederate pingidentity/pingfederate --namespace dive25
 ---
 
 ## API Endpoints
-The API provides comprehensive functionality for managing users, partners, documents, and access control. Each request requires authentication, and attributes such as `uid`, `clearance`, `countryOfAffiliation`, and `coi` must be included for access control.
+The API provides comprehensive functionality for managing users, partners, documents, and access control. Each request requires authentication, and attributes such as `uid`, `clearance`, `countryOfAffiliation`, and `cOI` must be included for access control.
 
 ### User Management
 #### Register a New User
@@ -129,7 +129,7 @@ Content-Type: application/json
   "username": "newuser@example.com",
   "password": "securepassword",
   "email": "newuser@example.com",
-  "coi": ["OpAlpha"],
+  "cOI": ["OpAlpha"],
   "clearance": "SECRET",
   "countryOfAffiliation": "USA"
 }
@@ -168,7 +168,7 @@ Content-Type: application/json
   "partnerName": "Example Partner",
   "federationType": "SAML",
   "metadataUrl": "https://partner.example.com/metadata.xml",
-  "coi": ["OpAlpha"],
+  "cOI": ["OpAlpha"],
   "clearance": "SECRET",
   "countryOfAffiliation": "USA"
 }
@@ -183,7 +183,7 @@ Content-Type: multipart/form-data
   "file": "classified-report.pdf",
   "metadata": {
     "classification": "SECRET",
-    "coi": ["OpAlpha"],
+    "cOI": ["OpAlpha"],
     "countryOfAffiliation": "USA"
   }
 }
@@ -200,7 +200,7 @@ Response:
   "classification": "SECRET",
   "caveats": ["NOFORN"],
   "allowedNations": ["USA", "GBR", "FRA"],
-  "coi": ["OpAlpha"],
+  "cOI": ["OpAlpha"],
   "optionalAttributes": {
     "validUntil": "2025-12-31",
     "sensitivity": "HIGH"
@@ -216,7 +216,7 @@ Content-Type: application/json
 {
   "uid": "user123",
   "documentId": "67890",
-  "coi": ["OpAlpha", "MissionX"],
+  "cOI": ["OpAlpha", "MissionX"],
   "clearance": "SECRET",
   "countryOfAffiliation": "USA"
 }
@@ -231,13 +231,13 @@ Content-Type: application/json
     "uid": "user123",
     "clearance": "SECRET",
     "countryOfAffiliation": "USA",
-    "coi": ["OpAlpha"]
+    "cOI": ["OpAlpha"]
   },
   "resource": {
     "id": "67890",
     "classification": "SECRET",
     "allowedNations": ["USA", "GBR"],
-    "coi": ["OpAlpha"]
+    "cOI": ["OpAlpha"]
   }
 }
 ```
@@ -257,12 +257,12 @@ Validate API functionality:
 POST /api/test/integration
 Content-Type: application/json
 {
-  "testScenario": "User with valid COI and clearance",
+  "testScenario": "User with valid cOI and clearance",
   "user": {
     "uid": "user123",
     "clearance": "SECRET",
     "countryOfAffiliation": "USA",
-    "coi": ["OpAlpha"]
+    "cOI": ["OpAlpha"]
   },
   "expectedOutcome": "Access granted"
 }
