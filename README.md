@@ -279,11 +279,6 @@ npx audit-ci --low
 
 ---
 
-## License
-DIVE25 is licensed under [MIT License](LICENSE).
-
----
-
 ## Monitoring and Logging
 ### Health Checks
 ```bash
