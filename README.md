@@ -19,6 +19,7 @@ The outcome is a system where users authenticate via their own IdP, attributes a
 3. [Configuration](#configuration)
 4. [Deployment](#deployment)
 5. [API Endpoints](#api-endpoints)
+6. [Testing](#testing)
 6. [Monitoring and Logging](#monitoring-and-logging)
 7. [Security](#security)
 8. [Backup and Recovery](#backup-and-recovery)
@@ -113,13 +114,18 @@ helm upgrade --install pingfederate pingidentity/pingfederate --namespace dive25
 ---
 
 ## API Endpoints
-### User Authentication
+The API provides comprehensive functionality for managing users, partners, documents, and access control. Each request requires authentication, and attributes such as `uid`, `clearance`, `countryOfAffiliation`, and `coi` must be included for access control.
+
+### User Management
+#### Register a New User
 ```bash
-POST /api/auth/login
+POST /api/users/register
 Content-Type: application/json
 {
-  "username": "user@example.com",
+  "uid": "user123",
+  "username": "newuser@example.com",
   "password": "securepassword",
+  "email": "newuser@example.com",
   "coi": ["OpAlpha"],
   "clearance": "NATO SECRET",
   "countryOfAffiliation": "USA"
@@ -128,16 +134,36 @@ Content-Type: application/json
 Response:
 ```json
 {
-  "token": "jwt-token",
-  "expiresIn": 3600
+  "message": "User registered successfully",
+  "userId": "98765"
 }
 ```
 
-### Partner Metadata Validation
+#### Assign User Role
 ```bash
-POST /api/partners/validate-metadata
+POST /api/users/assign-role
 Content-Type: application/json
 {
+  "uid": "user123",
+  "role": "analyst"
+}
+```
+Response:
+```json
+{
+  "message": "Role assigned successfully"
+}
+```
+
+### Partner Registration
+#### Register a Partner
+```bash
+POST /api/partners/register
+Content-Type: application/json
+{
+  "partnerId": "PARTNER001",
+  "partnerName": "Example Partner",
+  "federationType": "SAML",
   "metadataUrl": "https://partner.example.com/metadata.xml",
   "coi": ["OpAlpha"],
   "clearance": "NATO SECRET",
@@ -145,49 +171,22 @@ Content-Type: application/json
 }
 ```
 
-### Create Partner Connection
+### Document Management
+#### Upload a Document
 ```bash
-POST /api/partners/onboard
-Content-Type: application/json
+POST /api/documents/upload
+Content-Type: multipart/form-data
 {
-  "partnerId": "PARTNER001",
-  "partnerName": "Example Partner",
-  "federationType": "SAML",
+  "file": "classified-report.pdf",
   "metadata": {
-    "url": "https://partner.example.com/metadata.xml"
-  },
-  "coi": ["OpAlpha"],
-  "clearance": "NATO SECRET",
-  "countryOfAffiliation": "USA"
+    "classification": "NATO SECRET",
+    "coi": ["OpAlpha"],
+    "countryOfAffiliation": "USA"
+  }
 }
 ```
 
-### Test Federation Connection
-```bash
-POST /api/partners/test-connection
-Content-Type: application/json
-{
-  "partnerId": "PARTNER001",
-  "coi": ["OpAlpha"],
-  "clearance": "NATO SECRET",
-  "countryOfAffiliation": "USA"
-}
-```
-
-### Document Access Validation
-```bash
-POST /api/documents/access
-Content-Type: application/json
-{
-  "userId": "12345",
-  "documentId": "67890",
-  "coi": ["OpAlpha", "MissionX"],
-  "clearance": "NATO SECRET",
-  "countryOfAffiliation": "USA"
-}
-```
-
-### Document Metadata Retrieval
+#### Retrieve Document Metadata
 ```bash
 GET /api/documents/metadata/67890
 ```
@@ -206,13 +205,27 @@ Response:
 }
 ```
 
-### Policy Evaluation via OPA
+### Access Control & Policy Enforcement
+#### Validate User Access to a Document
+```bash
+POST /api/documents/access
+Content-Type: application/json
+{
+  "uid": "user123",
+  "documentId": "67890",
+  "coi": ["OpAlpha", "MissionX"],
+  "clearance": "NATO SECRET",
+  "countryOfAffiliation": "USA"
+}
+```
+
+#### Policy Evaluation via OPA
 ```bash
 POST /api/authorization/evaluate
 Content-Type: application/json
 {
   "user": {
-    "id": "12345",
+    "uid": "user123",
     "clearance": "NATO SECRET",
     "countryOfAffiliation": "USA",
     "coi": ["OpAlpha"]
@@ -225,19 +238,44 @@ Content-Type: application/json
   }
 }
 ```
-Response:
-```json
+
+---
+
+## Testing
+### Unit Tests
+Run unit tests for API endpoints and access policies:
+```bash
+npm run test
+```
+
+### Integration Tests
+Validate API functionality:
+```bash
+POST /api/test/integration
+Content-Type: application/json
 {
-  "allow": true
+  "testScenario": "User with valid COI and clearance",
+  "user": {
+    "uid": "user123",
+    "clearance": "NATO SECRET",
+    "countryOfAffiliation": "USA",
+    "coi": ["OpAlpha"]
+  },
+  "expectedOutcome": "Access granted"
 }
 ```
 
-## Note on Optional Metadata Attributes
-Some API endpoints return optional metadata attributes such as:
-- **validUntil**: The date after which access may expire.
-- **sensitivity**: A qualitative measure of the document's criticality.
+### Load Testing
+Simulate multiple users accessing documents:
+```bash
+k6 run load-test.js
+```
 
-These attributes provide additional context but are not mandatory for access control decisions.
+### Security Testing
+Conduct vulnerability scans on APIs:
+```bash
+npx audit-ci --low
+```
 
 ---
 
