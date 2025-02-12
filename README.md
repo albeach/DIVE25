@@ -1,7 +1,7 @@
 
 ![DIVE25-ProjSnooze-Header-v1 2](https://github.com/user-attachments/assets/9a94e85a-fd86-4758-8ee6-607cdd23ec3b)
 
-# DIVE25 | Project Snooze | Deployment Runbook
+# DIVE25 | Project Snooze Control | Deployment Runbook
 
 ## Overview
 DIVE25 is a secure identity and access management platform integrating Ping Identity solutions with containerized deployments. This repository contains the deployment runbooks, configurations, and automation scripts for managing and maintaining the DIVE25 platform across different environments.
