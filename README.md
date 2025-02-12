@@ -112,35 +112,6 @@ helm upgrade --install pingfederate pingidentity/pingfederate --namespace dive25
 
 ---
 
-# DIVE25 Deployment Runbooks
-
-## Overview
-DIVE25 is a secure identity and access management platform integrating Ping Identity solutions with containerized deployments. This repository contains the deployment runbooks, configurations, and automation scripts for managing and maintaining the DIVE25 platform across different environments.
-
-In a multi-partner NATO environment, enabling secure, controlled access to a centralized repository of sensitive documents requires robust identity federation and Attribute-Based Access Control (ABAC). By adhering to NATO STANAGs (4774, 4778, and 5636) and NATO Security Policy, this report outlines a comprehensive approach for:
-
-- **Federated Authentication**: Integrating multiple Identity Providers (IdPs) through PingFederate.
-- **Standardized Attributes**: Ensuring attributes like classification level, caveats, nationality, and organizational affiliation are consistent and interoperable.
-- **OPA-based ABAC**: Using Open Policy Agent (OPA) and Rego policies to enforce fine-grained authorization decisions.
-- **Document Metadata Storage**: Using MongoDB for flexible and scalable metadata management.
-- **User-Friendly Front-End**: WordPress as a landing page, coupled with a Backend API to orchestrate access decisions.
-
-The outcome is a system where users authenticate via their own IdP, attributes are normalized, and access decisions are made dynamically based on classification, caveats, organizational affiliation, and other STANAG-driven rules before documents are accessible.
-
-## Table of Contents
-1. [System Requirements](#system-requirements)
-2. [Installation](#installation)
-3. [Configuration](#configuration)
-4. [Deployment](#deployment)
-5. [API Endpoints](#api-endpoints)
-6. [Monitoring and Logging](#monitoring-and-logging)
-7. [Security](#security)
-8. [Backup and Recovery](#backup-and-recovery)
-9. [Troubleshooting](#troubleshooting)
-10. [License](#license)
-
----
-
 ## API Endpoints
 ### User Authentication
 ```bash
