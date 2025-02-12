@@ -1,4 +1,7 @@
-# DIVE25 Deployment Runbook
+
+![DIVE25-ProjSnooze-Header-v1 2](https://github.com/user-attachments/assets/9a94e85a-fd86-4758-8ee6-607cdd23ec3b)
+
+# DIVE25 | Project Snooze Control | Deployment Runbook
 
 ## Overview
 DIVE25 is a secure identity and access management platform integrating Ping Identity solutions with containerized deployments. This repository contains the deployment runbooks, configurations, and automation scripts for managing and maintaining the DIVE25 platform across different environments.
@@ -114,7 +117,7 @@ helm upgrade --install pingfederate pingidentity/pingfederate --namespace dive25
 ---
 
 ## API Endpoints
-The API provides comprehensive functionality for managing users, partners, documents, and access control. Each request requires authentication, and attributes such as `uid`, `clearance`, `countryOfAffiliation`, and `coi` must be included for access control.
+The API provides comprehensive functionality for managing users, partners, documents, and access control. Each request requires authentication, and attributes such as `uid`, `clearance`, `countryOfAffiliation`, and `cOI` must be included for access control.
 
 ### User Management
 #### Register a New User
@@ -126,8 +129,8 @@ Content-Type: application/json
   "username": "newuser@example.com",
   "password": "securepassword",
   "email": "newuser@example.com",
-  "coi": ["OpAlpha"],
-  "clearance": "NATO SECRET",
+  "cOI": ["OpAlpha"],
+  "clearance": "SECRET",
   "countryOfAffiliation": "USA"
 }
 ```
@@ -165,8 +168,8 @@ Content-Type: application/json
   "partnerName": "Example Partner",
   "federationType": "SAML",
   "metadataUrl": "https://partner.example.com/metadata.xml",
-  "coi": ["OpAlpha"],
-  "clearance": "NATO SECRET",
+  "cOI": ["OpAlpha"],
+  "clearance": "SECRET",
   "countryOfAffiliation": "USA"
 }
 ```
@@ -179,8 +182,8 @@ Content-Type: multipart/form-data
 {
   "file": "classified-report.pdf",
   "metadata": {
-    "classification": "NATO SECRET",
-    "coi": ["OpAlpha"],
+    "classification": "SECRET",
+    "cOI": ["OpAlpha"],
     "countryOfAffiliation": "USA"
   }
 }
@@ -194,10 +197,10 @@ Response:
 ```json
 {
   "documentId": "67890",
-  "classification": "NATO SECRET",
+  "classification": "SECRET",
   "caveats": ["NOFORN"],
   "allowedNations": ["USA", "GBR", "FRA"],
-  "coi": ["OpAlpha"],
+  "cOI": ["OpAlpha"],
   "optionalAttributes": {
     "validUntil": "2025-12-31",
     "sensitivity": "HIGH"
@@ -213,8 +216,8 @@ Content-Type: application/json
 {
   "uid": "user123",
   "documentId": "67890",
-  "coi": ["OpAlpha", "MissionX"],
-  "clearance": "NATO SECRET",
+  "cOI": ["OpAlpha", "MissionX"],
+  "clearance": "SECRET",
   "countryOfAffiliation": "USA"
 }
 ```
@@ -226,15 +229,15 @@ Content-Type: application/json
 {
   "user": {
     "uid": "user123",
-    "clearance": "NATO SECRET",
+    "clearance": "SECRET",
     "countryOfAffiliation": "USA",
-    "coi": ["OpAlpha"]
+    "cOI": ["OpAlpha"]
   },
   "resource": {
     "id": "67890",
-    "classification": "NATO SECRET",
+    "classification": "SECRET",
     "allowedNations": ["USA", "GBR"],
-    "coi": ["OpAlpha"]
+    "cOI": ["OpAlpha"]
   }
 }
 ```
@@ -254,12 +257,12 @@ Validate API functionality:
 POST /api/test/integration
 Content-Type: application/json
 {
-  "testScenario": "User with valid COI and clearance",
+  "testScenario": "User with valid cOI and clearance",
   "user": {
     "uid": "user123",
-    "clearance": "NATO SECRET",
+    "clearance": "SECRET",
     "countryOfAffiliation": "USA",
-    "coi": ["OpAlpha"]
+    "cOI": ["OpAlpha"]
   },
   "expectedOutcome": "Access granted"
 }
@@ -276,11 +279,6 @@ Conduct vulnerability scans on APIs:
 ```bash
 npx audit-ci --low
 ```
-
----
-
-## License
-DIVE25 is licensed under [MIT License](LICENSE).
 
 ---
 
