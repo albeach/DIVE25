@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<con:config xmlns:con="http://www.sourceid.org/2004/05/config">
-    <con:item name="pf.runtime.context.path">/</con:item>
-    <con:item name="pf.runtime.http.port">9031</con:item>
-    <con:item name="pf.runtime.https.port">9031</con:item>
-    <con:item name="pf.federation.metadata.url">https://federation.dive25.com</con:item>
-    <con:item name="pf.monitor.backend.enabled">true</con:item>
-</con:config>

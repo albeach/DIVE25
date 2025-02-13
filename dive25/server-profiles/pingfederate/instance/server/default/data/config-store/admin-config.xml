@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<con:config xmlns:con="http://www.sourceid.org/2004/05/config">
-    <con:item name="pf.admin.https.port">9999</con:item>
-    <con:item name="pf.admin.hostname">localhost</con:item>
-    <con:item name="pf.console.login.mode">native</con:item>
-    <con:item name="pf.console.title">DIVE25 Federation Hub</con:item>
-    <con:item name="pf.console.session.timeout">30</con:item>
-</con:config>
