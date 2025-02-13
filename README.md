@@ -100,12 +100,12 @@ cp policies/access_policy.rego /path/to/opa/
 ## Deployment
 ### Development Deployment
 ```bash
-bash deploy.sh --env dev --ping-user your_username --ping-key your_key
+sudo ./deploy.sh --env dev --ping-user your_username --ping-key your_key
 ```
 
 ### Production Deployment
 ```bash
-bash deploy.sh --env prod --ping-user your_username --ping-key your_key
+sudo ./deploy.sh --env prod --ping-user your_username --ping-key your_key
 ```
 
 ### Infrastructure Deployment
