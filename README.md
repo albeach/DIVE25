@@ -48,7 +48,7 @@ The outcome is a system where users authenticate via their own IdP, attributes a
 ### 1. Clone Repository
 ```bash
 git clone https://github.com/organization/dive25.git
-cd dive25
+cd DIVE25
 ```
 
 ### 2. Set Up Environment Variables
@@ -66,7 +66,7 @@ OPA_URL=http://opa:8181
 
 ### 3. Install Dependencies
 ```bash
-npm install
+sudo apt install npm
 ```
 
 ---
@@ -78,8 +78,8 @@ Modify the necessary Kubernetes configuration files in `k8s/` before deployment.
 ### Docker Configuration
 Ensure that Docker is set up correctly and required images are available.
 ```bash
-docker-compose -f docker-compose.dev.yml pull
-docker-compose -f docker-compose.dev.yml up -d
+docker compose -f docker-compose.dev.yml pull
+docker compose -f docker-compose.dev.yml up -d
 ```
 
 ### Helm Setup
@@ -100,12 +100,12 @@ cp policies/access_policy.rego /path/to/opa/
 ## Deployment
 ### Development Deployment
 ```bash
-bash deploy.sh --env dev --ping-user your_username --ping-key your_key
+sudo ./deploy.sh --env dev --ping-user your_username --ping-key your_key
 ```
 
 ### Production Deployment
 ```bash
-bash deploy.sh --env prod --ping-user your_username --ping-key your_key
+sudo ./deploy.sh --env prod --ping-user your_username --ping-key your_key
 ```
 
 ### Infrastructure Deployment
