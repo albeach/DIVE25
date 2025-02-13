@@ -1,6 +1,16 @@
 import { Request } from 'express';
 import { ObjectId } from 'mongodb';
 
+const id = new ObjectId();
+
+// Fix SearchResult type
+export interface SearchResult<T> {
+    documents: T[];
+    total: number;
+    page: number;
+    limit: number;
+}
+
 // Security-related types
 export type ClearanceLevel = 
     | 'UNCLASSIFIED'
@@ -22,6 +32,12 @@ export type LacvCode =
     | 'LACV002'
     | 'LACV003'
     | 'LACV004';
+
+// Add missing types for MongoDB
+export interface MongoDocument {
+    _id?: ObjectId;
+    [key: string]: any;
+}
 
 // User-related interfaces
 export interface UserAttributes {
@@ -87,6 +103,7 @@ export interface DocumentResponse<T> {
 }
 
 export interface SearchResult<T> {
+    data: T;
     documents: T[];
     total: number;
 }
@@ -131,7 +148,7 @@ export interface PaginationOptions {
 }
 
 export interface PaginatedResponse<T> {
-    items: T[];
+    data: T[];
     pagination: {
         page: number;
         limit: number;
@@ -202,11 +219,12 @@ export interface ApiResponse<T> {
     };
 }
 
-// Validation interfaces
+// Update ValidationResult type
 export interface ValidationResult {
     valid: boolean;
     errors: string[];
     warnings?: string[];
+    missingAttributes?: string[];
 }
 
 // Audit interfaces

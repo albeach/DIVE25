@@ -1,8 +1,11 @@
 import { Response } from 'express';
-import { ObjectId } from 'mongodb';
+// At the top of files using MongoDB types
+import { Db as MongoDb, Collection, Document, ObjectId } from 'mongodb';
+import { DocumentMetadata } from '../types'; // Ensure correct import path
 import { DatabaseService } from '../services/DatabaseService';
 import { OPAService } from '../services/OPAService';
 import { LoggerService } from '../services/LoggerService';
+import { DocumentStorageService } from '../services/DocumentStorageService';
 import { MetricsService } from '../services/MetricsService';
 import { 
     AuthenticatedRequest,
@@ -17,18 +20,22 @@ import {
 import { asAuthError } from '../utils/errorUtils';
 import { DocumentContent } from '../models/Document';
 
+const id = new ObjectId();
+
 export class DocumentController {
     private static instance: DocumentController;
     private readonly db: DatabaseService;
     private readonly opa: OPAService;
     private readonly logger: LoggerService;
     private readonly metrics: MetricsService;
+    private readonly storageService: DocumentStorageService;
 
     private constructor() {
         this.db = DatabaseService.getInstance();
         this.opa = OPAService.getInstance();
         this.logger = LoggerService.getInstance();
         this.metrics = MetricsService.getInstance();
+        this.storageService = DocumentStorageService.getInstance();
     }
 
     public static getInstance(): DocumentController {
@@ -140,7 +147,7 @@ export class DocumentController {
             
             // Filter documents based on user's security attributes
             const accessibleDocuments = await Promise.all(
-                documents.map(async (doc: NATODocument) => {
+                documents.documents.map(async (doc: NATODocument) => {
                     const accessResult = await this.opa.evaluateAccess(
                         req.userAttributes,
                         {
@@ -154,7 +161,7 @@ export class DocumentController {
                 })
             );
 
-            const filteredDocuments = accessibleDocuments.filter((doc): doc is NATODocument => doc !== null);
+            const filteredDocuments = accessibleDocuments.filter((doc: NATODocument | null): doc is NATODocument => doc !== null);
 
             // Get total count for pagination
             const totalCount = await this.db.countDocuments(searchQuery);
@@ -350,13 +357,13 @@ public async deleteDocument(id: string, userAttributes: UserAttributes): Promise
       await this.db.deleteDocument(id);
 
       // Record metrics
-      this.metrics.recordDocumentOperation('delete', {
+      this.metrics.recordOperationMetrics('document_delete', {
           documentId: id
       });
 
   } catch (error) {
-      this.logger.error('Error deleting document:', error);
-      throw this.createError('Failed to delete document', 500, 'DOC000');
+      this.logger.error('Error deleting document:', error as Error);
+      throw this.createStorageError((error as Error).message, 500, 'DOC008', { originalError: error });
   }
 }
 
@@ -381,11 +388,14 @@ public async getDocumentMetadata(id: string, userAttributes: UserAttributes): Pr
           throw this.createError('Access denied', 403, 'DOC003');
       }
 
-      return document.metadata;
+      return {
+          ...document.metadata,
+          clearance: document.clearance
+      } as DocumentMetadata;
 
   } catch (error) {
       this.logger.error('Error retrieving document metadata:', error);
-      throw this.createStorageError(error, 'Failed to retrieve document metadata');
+      throw this.createStorageError((error as Error).message, 500, 'DOC008', { originalError: error });
   }
 }
 
@@ -415,7 +425,7 @@ public async getDocumentVersions(id: string, userAttributes: UserAttributes): Pr
 
   } catch (error) {
       this.logger.error('Error retrieving document versions:', error);
-      throw this.createStorageError(error, 'Failed to retrieve document versions');
+      throw this.createStorageError((error as Error).message, 500, 'DOC008', { originalError: error });
   }
 }
 
@@ -549,6 +559,46 @@ public async getDocumentVersions(id: string, userAttributes: UserAttributes): Pr
   private isValidLacvCode(code: unknown): boolean {
       const validCodes = ['LACV001', 'LACV002', 'LACV003', 'LACV004'];
       return typeof code === 'string' && validCodes.includes(code);
+  }
+
+
+    /**
+     * Creates a standardized error object for document storage operations.
+     * This helper method ensures consistent error formatting and proper typing
+     * for all storage-related errors in the NATO document system.
+     * 
+     * @param message - Human-readable error message
+     * @param statusCode - HTTP status code for the error
+     * @param code - Internal error code for tracking and monitoring
+     * @param details - Additional error context and metadata
+     * @returns Properly formatted AuthError object
+     */
+    private createStorageError(
+      message: string,
+      statusCode: number,
+      code: string,
+      details?: Record<string, unknown>
+  ): AuthError {
+      const error = new Error(message) as AuthError;
+      error.statusCode = statusCode;
+      error.code = code;
+      
+      // Add storage-specific metadata to the error
+      error.details = {
+          timestamp: new Date(),
+          ...details,
+          storageOperation: true
+      };
+      
+      // Log the error for monitoring
+      this.logger.error('Document storage error:', {
+          message,
+          code,
+          statusCode,
+          details
+      });
+
+      return error;
   }
 
   /**

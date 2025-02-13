@@ -1,6 +1,8 @@
+// src/routes/DocumentRoutes.ts
+
 import { Router, Response, NextFunction, RequestHandler } from 'express';
-import AuthMiddleware from '../middleware/auth';
-import { documentAccessMiddleware } from '../middleware/documentAccess';
+import AuthMiddleware from '../middleware/AuthMiddleware';
+import DocumentAccessMiddleware from '../middleware/documentAccess';
 import DocumentValidationMiddleware from '../middleware/documentValidation';
 import { DocumentController } from '../controllers/DocumentController';
 import { LoggerService } from '../services/LoggerService';
@@ -9,35 +11,30 @@ import {
     AuthenticatedRequest, 
     DocumentSearchQuery,
     NATODocument,
-    ApiResponse 
+    ApiResponse,
+    SearchResult,
+    DocumentMetadata,
+    PaginationOptions,
+    AuthError
 } from '../types';
-import { UserAttributes } from '../services/OPAService';
-import { ObjectId } from 'mongodb';
 
 /**
- * Router class that handles all document-related endpoints in the NATO system.
- * Implements secure document operations with proper access controls, validation,
- * and monitoring.
+ * Handles all document-related routes in the NATO document system.
+ * Implements secure document operations with proper access controls,
+ * validation, and monitoring according to NATO security standards.
  */
 export class DocumentRoutes {
     private static instance: DocumentRoutes;
     private readonly router: Router;
     private readonly documentController: DocumentController;
-    private readonly authMiddleware: typeof AuthMiddleware;
-    private readonly accessMiddleware: typeof documentAccessMiddleware;
-    private readonly validationMiddleware: typeof DocumentValidationMiddleware;
     private readonly logger: LoggerService;
     private readonly metrics: MetricsService;
 
     private constructor() {
         this.router = Router();
         this.documentController = DocumentController.getInstance();
-        this.authMiddleware = AuthMiddleware;
-        this.accessMiddleware = documentAccessMiddleware;
-        this.validationMiddleware = DocumentValidationMiddleware;
         this.logger = LoggerService.getInstance();
         this.metrics = MetricsService.getInstance();
-        
         this.initializeRoutes();
     }
 
@@ -53,248 +50,300 @@ export class DocumentRoutes {
     }
 
     /**
-     * Initializes all document-related routes with proper middleware chains
-     * and security controls.
+     * Initializes all document-related routes with proper middleware chains.
+     * Each route is protected by appropriate authentication and authorization checks.
      */
     private initializeRoutes(): void {
-        // Apply authentication to all routes
-        this.router.use(AuthMiddleware.authenticate as RequestHandler);
-        this.router.use(AuthMiddleware.extractUserAttributes as RequestHandler);
+        // Apply common middleware to all routes
+        this.router.use(AuthMiddleware.authenticate);
+        this.router.use(AuthMiddleware.extractUserAttributes);
 
-        // Search documents
-        this.router.post('/search', this.wrapAsync(async (req: AuthenticatedRequest, res: Response) => {
-            const startTime = Date.now();
-            
-            const searchQuery: DocumentSearchQuery = {
-                ...req.body.query,
-                maxClearance: req.userAttributes.clearance
-            };
-        
-            const { documents, total } = await this.documentController.searchDocuments(
-                searchQuery,
-                {
-                    page: parseInt(req.query.page as string) || 1,
-                    limit: parseInt(req.query.limit as string) || 10
-                }
-            );
-        
-            // Record metrics
-            this.metrics.recordDocumentOperation('search', {
-                duration: Date.now() - startTime,
-                resultCount: documents.length
-            });
-        
-            const response: PaginatedResponse<NATODocument> = {
-                data: documents,
-                pagination: {
-                    page: parseInt(req.query.page as string) || 1,
-                    limit: parseInt(req.query.limit as string) || 10,
-                    total,
-                    totalPages: Math.ceil(total / (parseInt(req.query.limit as string) || 10))
-                },
-                metadata: {
-                    timestamp: new Date(),
-                    requestId: req.headers['x-request-id'] as string
-                }
-            };
-        
-            res.json(response);
-        }));
+        // Document search endpoint
+        this.router.post('/search', this.wrapAsync(this.handleSearch.bind(this)));
 
-        // Get single document
+        // Single document retrieval
         this.router.get('/:id',
-            this.accessMiddleware as RequestHandler,
-            this.wrapAsync(async (req: AuthenticatedRequest, res: Response) => {
-                const startTime = Date.now();
-                
-                const document = await this.documentController.getDocument(
-                    new ObjectId(req.params.id),
-                    req.userAttributes
-                );
-
-                // Record metrics
-                this.metrics.recordDocumentOperation('read', {
-                    duration: Date.now() - startTime,
-                    documentId: req.params.id
-                });
-
-                const response: ApiResponse<NATODocument> = {
-                    success: true,
-                    data: document,
-                    metadata: {
-                        timestamp: new Date(),
-                        requestId: req.headers['x-request-id'] as string
-                    }
-                };
-
-                res.json(response);
-            })
+            DocumentAccessMiddleware.validateAccess,
+            this.wrapAsync(this.handleGetDocument.bind(this))
         );
 
-        // Create document
+        // Document creation
         this.router.post('/',
-            this.authMiddleware.requireClearance('NATO CONFIDENTIAL') as RequestHandler,
-            this.accessMiddleware as RequestHandler,
-            this.validationMiddleware.validateDocument as RequestHandler,
-            this.wrapAsync(async (req: AuthenticatedRequest, res: Response) => {
-                const startTime = Date.now();
-                
-                const document = await this.documentController.createDocument(
-                    req.body,
-                    req.userAttributes
-                );
-
-                // Record metrics
-                this.metrics.recordDocumentOperation('create', {
-                    duration: Date.now() - startTime,
-                    documentId: document._id
-                });
-
-                const response: ApiResponse<NATODocument> = {
-                    success: true,
-                    data: document,
-                    metadata: {
-                        timestamp: new Date(),
-                        requestId: req.headers['x-request-id'] as string
-                    }
-                };
-
-                res.status(201).json(response);
-            })
+            AuthMiddleware.requireClearance('NATO CONFIDENTIAL'),
+            DocumentValidationMiddleware.validateDocument,
+            this.wrapAsync(this.handleCreateDocument.bind(this))
         );
 
-        // Update document
+        // Document update
         this.router.put('/:id',
-            this.authMiddleware.requireClearance('NATO CONFIDENTIAL') as RequestHandler,
-            this.accessMiddleware as RequestHandler,
-            this.validationMiddleware.validateDocument as RequestHandler,
-            this.wrapAsync(async (req: AuthenticatedRequest, res: Response) => {
-                const startTime = Date.now();
-                
-                const document = await this.documentController.updateDocument(
-                    new ObjectId(req.params.id),
-                    req.body,
-                    req.userAttributes
-                );
-
-                // Record metrics
-                this.metrics.recordDocumentOperation('update', {
-                    duration: Date.now() - startTime,
-                    documentId: req.params.id
-                });
-
-                const response: ApiResponse<NATODocument> = {
-                    success: true,
-                    data: document,
-                    metadata: {
-                        timestamp: new Date(),
-                        requestId: req.headers['x-request-id'] as string
-                    }
-                };
-
-                res.json(response);
-            })
+            AuthMiddleware.requireClearance('NATO CONFIDENTIAL'),
+            DocumentAccessMiddleware.validateAccess,
+            DocumentValidationMiddleware.validateDocument,
+            this.wrapAsync(this.handleUpdateDocument.bind(this))
         );
 
-        // Delete document
+        // Document deletion
         this.router.delete('/:id',
-            this.authMiddleware.requireClearance('NATO SECRET') as RequestHandler,
-            this.accessMiddleware as RequestHandler,
-            this.wrapAsync(async (req: AuthenticatedRequest, res: Response) => {
-                const startTime = Date.now();
-                
-                await this.documentController.deleteDocument(
-                    new ObjectId(req.params.id),
-                    req.userAttributes
-                );
-
-                // Record metrics
-                this.metrics.recordDocumentOperation('delete', {
-                    duration: Date.now() - startTime,
-                    documentId: req.params.id
-                });
-
-                const response: ApiResponse<{ message: string }> = {
-                    success: true,
-                    data: { message: 'Document deleted successfully' },
-                    metadata: {
-                        timestamp: new Date(),
-                        requestId: req.headers['x-request-id'] as string
-                    }
-                };
-
-                res.json(response);
-            })
+            AuthMiddleware.requireClearance('NATO SECRET'),
+            DocumentAccessMiddleware.validateAccess,
+            this.wrapAsync(this.handleDeleteDocument.bind(this))
         );
 
-        // Get document metadata
+        // Document metadata retrieval
         this.router.get('/:id/metadata',
-            this.accessMiddleware as RequestHandler,
-            this.wrapAsync(async (req: AuthenticatedRequest, res: Response) => {
-                const startTime = Date.now();
-                
-                const metadata = await this.documentController.getDocumentMetadata(
-                    new ObjectId(req.params.id),
-                    req.userAttributes
-                );
-
-                // Record metrics
-                this.metrics.recordDocumentOperation('metadata', {
-                    duration: Date.now() - startTime,
-                    documentId: req.params.id
-                });
-
-                const response: ApiResponse<typeof metadata> = {
-                    success: true,
-                    data: metadata,
-                    metadata: {
-                        timestamp: new Date(),
-                        requestId: req.headers['x-request-id'] as string
-                    }
-                };
-
-                res.json(response);
-            })
-        );
-
-        // Get document version history
-        this.router.get('/:id/versions',
-            this.accessMiddleware as RequestHandler,
-            this.wrapAsync(async (req: AuthenticatedRequest, res: Response) => {
-                const startTime = Date.now();
-                
-                const versions = await this.documentController.getDocumentVersions(
-                    new ObjectId(req.params.id),
-                    req.userAttributes
-                );
-
-                // Record metrics
-                this.metrics.recordDocumentOperation('versions', {
-                    duration: Date.now() - startTime,
-                    documentId: req.params.id
-                });
-
-                const response: ApiResponse<typeof versions> = {
-                    success: true,
-                    data: versions,
-                    metadata: {
-                        timestamp: new Date(),
-                        requestId: req.headers['x-request-id'] as string
-                    }
-                };
-
-                res.json(response);
-            })
+            DocumentAccessMiddleware.validateAccess,
+            this.wrapAsync(this.handleGetMetadata.bind(this))
         );
     }
 
     /**
-     * Wraps async route handlers with error handling and logging.
+     * Handles document search requests with pagination and security filtering.
      */
-    private wrapAsync(fn: (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<void>) {
-        return (async (req, res, next) => {
+    private async handleSearch(req: AuthenticatedRequest, res: Response): Promise<void> {
+        const startTime = Date.now();
+        
+        const searchQuery: DocumentSearchQuery = {
+            ...req.body.query,
+            maxClearance: req.userAttributes.clearance
+        };
+
+        const paginationOptions: PaginationOptions = {
+            page: parseInt(req.query.page as string) || 1,
+            limit: Math.min(parseInt(req.query.limit as string) || 10, 100),
+            sort: req.query.sort ? {
+                field: req.query.sort as keyof NATODocument,
+                order: (req.query.order as 'asc' | 'desc') || 'desc'
+            } : undefined
+        };
+
+        const result = await this.documentController.searchDocuments(
+            searchQuery,
+            paginationOptions
+        );
+
+        await this.metrics.recordOperationMetrics('document_search', {
+            duration: Date.now() - startTime,
+            resultCount: result.documents.length,
+            userClearance: req.userAttributes.clearance
+        });
+
+        const response: ApiResponse<SearchResult<NATODocument>> = {
+            success: true,
+            data: result,
+            metadata: {
+                timestamp: new Date(),
+                requestId: req.headers['x-request-id'] as string
+            }
+        };
+
+        res.json(response);
+    }
+
+    /**
+     * Handles single document retrieval with security checks.
+     */
+    private async handleGetDocument(req: AuthenticatedRequest, res: Response): Promise<void> {
+        const startTime = Date.now();
+        
+        const document = await this.documentController.getDocument(
+            req.params.id,
+            req.userAttributes
+        );
+
+        if (!document) {
+            res.status(404).json({
+                success: false,
+                error: {
+                    code: 'DOC_NOT_FOUND',
+                    message: 'Document not found'
+                }
+            });
+            return;
+        }
+
+        await this.metrics.recordOperationMetrics('document_read', {
+            duration: Date.now() - startTime,
+            documentId: req.params.id,
+            documentClearance: document.clearance
+        });
+
+        const response: ApiResponse<NATODocument> = {
+            success: true,
+            data: document,
+            metadata: {
+                timestamp: new Date(),
+                requestId: req.headers['x-request-id'] as string
+            }
+        };
+
+        res.json(response);
+    }
+
+    /**
+     * Handles document creation with proper security metadata.
+     */
+    private async handleCreateDocument(req: AuthenticatedRequest, res: Response): Promise<void> {
+        const startTime = Date.now();
+        
+        const document = await this.documentController.createDocument({
+            ...req.body,
+            metadata: {
+                createdBy: req.userAttributes.uniqueIdentifier,
+                createdAt: new Date(),
+                lastModified: new Date(),
+                version: 1
+            }
+        });
+
+        await this.metrics.recordOperationMetrics('document_create', {
+            duration: Date.now() - startTime,
+            documentId: document._id?.toString(),
+            documentClearance: document.clearance
+        });
+
+        const response: ApiResponse<NATODocument> = {
+            success: true,
+            data: document,
+            metadata: {
+                timestamp: new Date(),
+                requestId: req.headers['x-request-id'] as string
+            }
+        };
+
+        res.status(201).json(response);
+    }
+
+    /**
+     * Handles document updates while maintaining version history.
+     */
+    private async handleUpdateDocument(req: AuthenticatedRequest, res: Response): Promise<void> {
+        const startTime = Date.now();
+        
+        const document = await this.documentController.updateDocument(
+            req.params.id,
+            {
+                ...req.body,
+                metadata: {
+                    lastModified: new Date(),
+                    lastModifiedBy: req.userAttributes.uniqueIdentifier
+                }
+            }
+        );
+
+        if (!document) {
+            res.status(404).json({
+                success: false,
+                error: {
+                    code: 'DOC_NOT_FOUND',
+                    message: 'Document not found'
+                }
+            });
+            return;
+        }
+
+        await this.metrics.recordOperationMetrics('document_update', {
+            duration: Date.now() - startTime,
+            documentId: document._id?.toString(),
+            documentClearance: document.clearance
+        });
+
+        const response: ApiResponse<NATODocument> = {
+            success: true,
+            data: document,
+            metadata: {
+                timestamp: new Date(),
+                requestId: req.headers['x-request-id'] as string
+            }
+        };
+
+        res.json(response);
+    }
+
+    /**
+     * Handles document deletion (soft delete).
+     */
+    private async handleDeleteDocument(req: AuthenticatedRequest, res: Response): Promise<void> {
+        const startTime = Date.now();
+        
+        const success = await this.documentController.deleteDocument(
+            req.params.id,
+            req.userAttributes
+        );
+
+        if (!success) {
+            res.status(404).json({
+                success: false,
+                error: {
+                    code: 'DOC_NOT_FOUND',
+                    message: 'Document not found'
+                }
+            });
+            return;
+        }
+
+        await this.metrics.recordOperationMetrics('document_delete', {
+            duration: Date.now() - startTime,
+            documentId: req.params.id
+        });
+
+        const response: ApiResponse<{ message: string }> = {
+            success: true,
+            data: { message: 'Document deleted successfully' },
+            metadata: {
+                timestamp: new Date(),
+                requestId: req.headers['x-request-id'] as string
+            }
+        };
+
+        res.json(response);
+    }
+
+    /**
+     * Handles document metadata retrieval.
+     */
+    private async handleGetMetadata(req: AuthenticatedRequest, res: Response): Promise<void> {
+        const startTime = Date.now();
+        
+        const metadata = await this.documentController.getDocumentMetadata(
+            req.params.id,
+            req.userAttributes
+        );
+
+        if (!metadata) {
+            res.status(404).json({
+                success: false,
+                error: {
+                    code: 'DOC_NOT_FOUND',
+                    message: 'Document not found'
+                }
+            });
+            return;
+        }
+
+        await this.metrics.recordOperationMetrics('metadata_read', {
+            duration: Date.now() - startTime,
+            documentId: req.params.id
+        });
+
+        const response: ApiResponse<DocumentMetadata> = {
+            success: true,
+            data: metadata,
+            metadata: {
+                timestamp: new Date(),
+                requestId: req.headers['x-request-id'] as string
+            }
+        };
+
+        res.json(response);
+    }
+
+    /**
+     * Wraps async route handlers with unified error handling and logging.
+     */
+    private wrapAsync(fn: (req: AuthenticatedRequest, res: Response) => Promise<void>): RequestHandler {
+        return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
             try {
-                await fn(req as AuthenticatedRequest, res, next);
+                await fn(req, res);
             } catch (error) {
                 this.logger.error('Route handler error:', {
                     error,
@@ -303,10 +352,16 @@ export class DocumentRoutes {
                     userId: req.userAttributes?.uniqueIdentifier,
                     requestId: req.headers['x-request-id']
                 });
-                this.metrics.recordRouteError(req.path, error);
+
+                await this.metrics.recordOperationError(req.path, {
+                    error,
+                    userId: req.userAttributes?.uniqueIdentifier,
+                    operationId: req.headers['x-request-id']
+                });
+
                 next(error);
             }
-        }) as RequestHandler;
+        };
     }
 }
 

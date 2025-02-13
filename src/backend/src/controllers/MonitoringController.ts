@@ -63,7 +63,7 @@ export class MonitoringController {
             // Gather metrics from various sources
             const [metrics, healthStatus, securityMetrics] = await Promise.all([
                 this.monitoringService.getPartnerMetrics(partnerId),
-                this.monitoringService.getPartnerHealthStatus(partnerId),
+                this.monitoringService.getPartnerHealth(partnerId),
                 this.collectSecurityMetrics(partnerId)
             ]);
 
@@ -149,10 +149,9 @@ export class MonitoringController {
             );
 
             // Record alert metrics
-            await this.metricsService.recordSystemMetric(
-                'active_alerts',
-                filteredAlerts.length
-            );
+            await this.metricsService.recordOperationMetrics('system_alerts', {
+                count: filteredAlerts.length
+            });
 
             const response: ApiResponse<typeof filteredAlerts> = {
                 success: true,
@@ -333,8 +332,8 @@ export class MonitoringController {
 
     private async collectSecurityMetrics(scope: string) {
         return {
-            failedAuthentications: await this.metricsService.getFailedAuthentications(scope),
-            accessViolations: await this.metricsService.getAccessViolations(scope),
+            failedAuthentications: await this.metricsService.getFailedAccessCount(scope, 'authentication', Date.now()),
+            accessViolations: await this.metricsService.getFailedAccessCount(scope, 'access_violation', Date.now()),
             activeAlerts: await this.monitoringService.getActiveAlertCount(scope)
         };
     }
@@ -405,7 +404,10 @@ export class MonitoringController {
 
         await Promise.all(
             metricsToRecord.map(([name, value]) =>
-                this.metricsService.recordPartnerMetric(partnerId, name as string, value as number)
+                this.metricsService.recordOperationMetrics(name as string, { 
+                    value: value as number,
+                    partnerId 
+                })
             )
         );
     }

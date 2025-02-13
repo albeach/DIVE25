@@ -1,16 +1,14 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "DIVE25 NATO Document System Backend",
+  "main": "dist/app.js",
   "scripts": {
-    "test": "jest",
-    "build": "tsc",
-    "start": "node dist/app.js"
+    "build": "./node_modules/.bin/tsc",
+    "dev": "ts-node src/app.ts",
+    "start": "node dist/app.js",
+    "test": "jest"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
     "@open-policy-agent/opa-wasm": "^1.10.0",
     "axios": "^1.7.9",

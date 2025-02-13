@@ -3,7 +3,7 @@
 import axios from 'axios';
 import { config } from '../config/config';
 import { LoggerService } from '../services/LoggerService';
-import { NATODocument } from '../types';
+import { NATODocument, ValidationResult } from '../types';
 
 export interface UserAttributes {
     uniqueIdentifier: string;
@@ -28,6 +28,16 @@ export interface OPAInput {
 export interface OPAResult {
     allow: boolean;
     reason?: string;
+}
+
+export interface OPAService {
+    evaluateAccess(user: UserAttributes, resource: ResourceAttributes): Promise<OPAResult>;
+    validateAttributes(attributes: UserAttributes): Promise<ValidationResult>;
+    evaluateClearanceAccess(userClearance: string, requiredClearance: string): Promise<OPAResult>;
+    evaluateUpdateAccess(userAttributes: UserAttributes, document: NATODocument): Promise<OPAResult>;
+    evaluateClearanceModification(userAttributes: UserAttributes, from: string, to: string): Promise<OPAResult>;
+    evaluateReleasabilityModification(userAttributes: UserAttributes, changes: any): Promise<OPAResult>;
+    evaluateCoiModification(userAttributes: UserAttributes, changes: any): Promise<OPAResult>;
 }
 
 export class OPAService {

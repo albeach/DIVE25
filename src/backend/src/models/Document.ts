@@ -51,7 +51,7 @@ export interface DocumentContent {
     size?: number;
 }
 
-export interface Document {
+export interface NATODocument {
     _id?: ObjectId;
     title: string;
     clearance: ClearanceLevel;
@@ -62,7 +62,7 @@ export interface Document {
     content: DocumentContent;
 }
 
-export interface NewDocument extends Omit<Document, '_id'> {
+export interface NewDocument extends Omit<NATODocument, '_id'> {
     metadata: DocumentMetadata;
     content: DocumentContent;
 }
@@ -88,7 +88,7 @@ export interface DocumentSearchOptions {
     page?: number;
     limit?: number;
     sort?: {
-        field: keyof Document;
+        field: keyof NATODocument;
         order: 'asc' | 'desc';
     };
 }

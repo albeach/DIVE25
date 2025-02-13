@@ -2,7 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import { config } from './config/config';
-import { authMiddleware, extractUserAttributes } from './middleware/auth';
+import { AuthMiddleware, extractUserAttributes } from './middleware/auth';
 import { DocumentController } from './controllers/DocumentController';
 import { DatabaseService } from './services/DatabaseService';
 import { PartnerController } from './controllers/PartnerController';

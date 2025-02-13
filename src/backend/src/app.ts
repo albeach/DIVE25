@@ -3,7 +3,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { config } from './config/config';
-import AuthMiddleware from './middleware/auth';
+import AuthMiddleware from './middleware/AuthMiddleware';
 import { DocumentController } from './controllers/DocumentController';
 import PartnerController from './controllers/PartnerController';
 import { MonitoringController } from './controllers/MonitoringController';

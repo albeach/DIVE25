@@ -1,9 +1,8 @@
-// src/services/SessionManagementService.ts
+// At the top of files using MongoDB types
+import { Db, Collection, Document, ObjectId, WithId, MongoClient } from 'mongodb';
 import axios from 'axios';
 import { Redis } from 'ioredis';
 import { config } from '../config/config';
-import { MongoClient } from 'mongodb';
-import { Db } from 'mongodb';
 
 export interface SessionMetadata {
   sessionId: string;
@@ -35,7 +34,7 @@ export class SessionManagementService {
   private constructor() {
     this.redis = new Redis(config.redis);
     this.baseUrl = config.pingFederate.baseUrl;
-    this.db = MongoClient.connect(config.mongo.uri).then(client => client.db('federation'));
+    this.db = MongoClient.connect(config.mongo.uri).then((client: MongoClient) => client.db('federation'));
   }
 
   public static getInstance(): SessionManagementService {
@@ -143,7 +142,7 @@ export class SessionManagementService {
       return {
         activeSessions: sessions.length,
         averageDuration: this.calculateAverageSessionDuration(sessions),
-        lastActivity: sessions.length ? new Date(Math.max(...sessions.map(s => s.lastActivity))) : null
+        lastActivity: sessions.length ? new Date(Math.max(...sessions.map((s: any) => s.lastActivity))) : null
       };
     } catch (error) {
       console.error('Error getting partner session stats:', error);

@@ -1,4 +1,4 @@
-import { Collection, ObjectId } from 'mongodb';
+import { Db, Collection, Document, ObjectId, WithId } from 'mongodb';
 import { DatabaseService } from './DatabaseService';
 import { LoggerService } from './LoggerService';
 import { MetricsService } from './MetricsService';

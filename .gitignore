@@ -103,3 +103,10 @@ merge-repo.js
 /docker/monitoring/grafana
 /certificates/prod
 docker/monitoring/grafana/grafana.db
+src/backend/node_modules/*
+src/backend/dist/*
+src/backend/build/*
+src/backend/coverage/*
+src/backend/logs/*
+src/backend/tmp/*
+src/backend/src/node_modules/*

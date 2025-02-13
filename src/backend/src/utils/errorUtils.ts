@@ -1,251 +1,93 @@
-// src/routes/DocumentRoutes.ts
+// src/middleware/errorHandler.ts
 
-import { Router, Response, NextFunction, RequestHandler } from 'express';
-import AuthMiddleware from '../middleware/auth';
-import { documentAccessMiddleware } from '../middleware/documentAccess';
-import DocumentValidationMiddleware from '../middleware/documentValidation';
-import { DocumentController } from '../controllers/DocumentController';
+import { Request, Response, NextFunction } from 'express';
+import { AuthError } from '../types';
 import { LoggerService } from '../services/LoggerService';
 import { MetricsService } from '../services/MetricsService';
-import { 
-    AuthenticatedRequest, 
-    DocumentSearchQuery,
-    NATODocument,
-    DocumentResponse,
-    PaginatedResponse,
-    DocumentSearchOptions,
-    SearchResult,
-    DocumentVersionInfo
-} from '../types';
 
-export class DocumentRoutes {
-    private router: Router;
-    private documentController: DocumentController;
-    private logger: LoggerService;
-    private metrics: MetricsService;
+export const errorHandler = (
+    error: Error,
+    req: Request,
+    res: Response,
+    next: NextFunction
+): void => {
+    const logger = LoggerService.getInstance();
+    const metrics = MetricsService.getInstance();
+    const typedError = error as AuthError;
+    
+    // Log error with context
+    logger.error('Unhandled error:', {
+        error: typedError,
+        path: req.path,
+        method: req.method,
+        requestId: req.headers['x-request-id'],
+        userId: (req as any).userAttributes?.uniqueIdentifier
+    });
 
-    constructor() {
-        this.router = Router();
-        this.documentController = DocumentController.getInstance();
-        this.logger = LoggerService.getInstance();
-        this.metrics = MetricsService.getInstance();
-        this.initializeRoutes();
+    // Record error metric
+    metrics.recordOperationError(req.path, error);
+
+    // Determine status code and format error response
+    const statusCode = typedError.statusCode || 500;
+    const errorCode = typedError.code || 'INTERNAL_ERROR';
+    const errorMessage = typedError.message || 'Internal server error';
+
+    // Send formatted error response
+    res.status(statusCode).json({
+        success: false,
+        error: {
+            message: errorMessage,
+            code: errorCode,
+            details: typedError.details,
+            status: statusCode
+        },
+        metadata: {
+            timestamp: new Date(),
+            requestId: req.headers['x-request-id'],
+            path: req.path,
+            method: req.method
+        }
+    });
+};
+
+// Add custom error middleware for specific error types
+export const notFoundHandler = (
+    req: Request,
+    res: Response,
+    next: NextFunction
+): void => {
+    const error = new Error('Resource not found') as AuthError;
+    error.statusCode = 404;
+    error.code = 'NOT_FOUND';
+    next(error);
+};
+
+export const validationErrorHandler = (
+    error: Error,
+    req: Request,
+    res: Response,
+    next: NextFunction
+): void => {
+    if (error.name === 'ValidationError') {
+        const typedError = error as AuthError;
+        typedError.statusCode = 400;
+        typedError.code = 'VALIDATION_ERROR';
     }
+    next(error);
+};
 
-    public getRouter(): Router {
-        return this.router;
+export const authError = asAuthError(error);
+
+export const securityErrorHandler = (
+    error: Error,
+    req: Request,
+    res: Response,
+    next: NextFunction
+): void => {
+    if (error.name === 'SecurityError') {
+        const typedError = error as AuthError;
+        typedError.statusCode = 403;
+        typedError.code = 'SECURITY_ERROR';
     }
-
-    private initializeRoutes(): void {
-        // Apply common middleware
-        this.router.use(AuthMiddleware.authenticate as RequestHandler);
-        this.router.use(AuthMiddleware.extractUserAttributes as RequestHandler);
-
-        // Search documents
-        this.router.post('/search', this.wrapAsync(async (req: AuthenticatedRequest, res: Response) => {
-            const startTime = Date.now();
-            
-            const searchQuery: DocumentSearchQuery = {
-                ...req.body.query,
-                maxClearance: req.userAttributes.clearance
-            };
-
-            const searchOptions: DocumentSearchOptions = {
-                page: parseInt(req.query.page as string) || 1,
-                limit: parseInt(req.query.limit as string) || 10,
-                sort: req.query.sort ? {
-                    field: req.query.sort as string,
-                    order: (req.query.order as 'asc' | 'desc') || 'desc'
-                } : undefined
-            };
-
-            const result: SearchResult<NATODocument> = await this.documentController.searchDocuments(
-                searchQuery,
-                searchOptions
-            );
-
-            // Record metrics
-            this.metrics.recordDocumentOperation('search', {
-                duration: Date.now() - startTime,
-                resultCount: result.documents.length
-            });
-
-            const response: PaginatedResponse<NATODocument> = {
-                data: result.documents,
-                pagination: {
-                    page: searchOptions.page,
-                    limit: searchOptions.limit,
-                    total: result.total,
-                    totalPages: Math.ceil(result.total / searchOptions.limit)
-                },
-                metadata: {
-                    timestamp: new Date(),
-                    requestId: req.headers['x-request-id'] as string
-                }
-            };
-
-            res.json(response);
-        }));
-
-        // Get single document
-        this.router.get('/:id', 
-            documentAccessMiddleware as RequestHandler,
-            this.wrapAsync(async (req: AuthenticatedRequest, res: Response) => {
-                const document = await this.documentController.getDocument(
-                    req.params.id,
-                    req.userAttributes
-                );
-
-                const response: DocumentResponse<NATODocument> = {
-                    success: true,
-                    data: document,
-                    metadata: {
-                        timestamp: new Date(),
-                        requestId: req.headers['x-request-id'] as string
-                    }
-                };
-
-                res.json(response);
-            })
-        );
-
-        // Create document
-        this.router.post('/',
-            AuthMiddleware.requireClearance('NATO CONFIDENTIAL') as RequestHandler,
-            DocumentValidationMiddleware.validateDocument as RequestHandler,
-            this.wrapAsync(async (req: AuthenticatedRequest, res: Response) => {
-                const document = await this.documentController.createDocument(
-                    req.body,
-                    req.userAttributes
-                );
-
-                const response: DocumentResponse<NATODocument> = {
-                    success: true,
-                    data: document,
-                    metadata: {
-                        timestamp: new Date(),
-                        requestId: req.headers['x-request-id'] as string
-                    }
-                };
-
-                res.status(201).json(response);
-            })
-        );
-
-        // Update document
-        this.router.put('/:id',
-            AuthMiddleware.requireClearance('NATO CONFIDENTIAL') as RequestHandler,
-            documentAccessMiddleware as RequestHandler,
-            DocumentValidationMiddleware.validateDocument as RequestHandler,
-            this.wrapAsync(async (req: AuthenticatedRequest, res: Response) => {
-                const document = await this.documentController.updateDocument(
-                    req.params.id,
-                    req.body,
-                    req.userAttributes
-                );
-
-                const response: DocumentResponse<NATODocument> = {
-                    success: true,
-                    data: document,
-                    metadata: {
-                        timestamp: new Date(),
-                        requestId: req.headers['x-request-id'] as string
-                    }
-                };
-
-                res.json(response);
-            })
-        );
-
-        // Delete document
-        this.router.delete('/:id',
-            AuthMiddleware.requireClearance('NATO SECRET') as RequestHandler,
-            documentAccessMiddleware as RequestHandler,
-            this.wrapAsync(async (req: AuthenticatedRequest, res: Response) => {
-                await this.documentController.deleteDocument(
-                    req.params.id,
-                    req.userAttributes
-                );
-
-                const response: DocumentResponse<{ message: string }> = {
-                    success: true,
-                    data: { message: 'Document deleted successfully' },
-                    metadata: {
-                        timestamp: new Date(),
-                        requestId: req.headers['x-request-id'] as string
-                    }
-                };
-
-                res.json(response);
-            })
-        );
-
-        // Get document metadata
-        this.router.get('/:id/metadata',
-            documentAccessMiddleware as RequestHandler,
-            this.wrapAsync(async (req: AuthenticatedRequest, res: Response) => {
-                const metadata = await this.documentController.getDocumentMetadata(
-                    req.params.id,
-                    req.userAttributes
-                );
-
-                const response: DocumentResponse<typeof metadata> = {
-                    success: true,
-                    data: metadata,
-                    metadata: {
-                        timestamp: new Date(),
-                        requestId: req.headers['x-request-id'] as string
-                    }
-                };
-
-                res.json(response);
-            })
-        );
-
-        // Get document versions
-        this.router.get('/:id/versions',
-            documentAccessMiddleware as RequestHandler,
-            this.wrapAsync(async (req: AuthenticatedRequest, res: Response) => {
-                const versions = await this.documentController.getDocumentVersions(
-                    req.params.id,
-                    req.userAttributes
-                );
-
-                const response: DocumentResponse<DocumentVersionInfo[]> = {
-                    success: true,
-                    data: versions,
-                    metadata: {
-                        timestamp: new Date(),
-                        requestId: req.headers['x-request-id'] as string
-                    }
-                };
-
-                res.json(response);
-            })
-        );
-    }
-
-    private wrapAsync(fn: (req: AuthenticatedRequest, res: Response) => Promise<void>): RequestHandler {
-        return (async (req, res, next) => {
-            try {
-                await fn(req as AuthenticatedRequest, res);
-            } catch (error) {
-                this.logger.error('Route handler error:', {
-                    error,
-                    path: req.path,
-                    method: req.method,
-                    userId: (req as AuthenticatedRequest).userAttributes?.uniqueIdentifier,
-                    requestId: req.headers['x-request-id']
-                });
-                
-                if (this.metrics) {
-                    this.metrics.recordRouteError(req.path, error as Error);
-                }
-                
-                next(error);
-            }
-        }) as RequestHandler;
-    }
-}
-
-export default new DocumentRoutes();
+    next(error);
+};

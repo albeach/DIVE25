@@ -4,7 +4,7 @@ import {
    ClearanceLevel,
    CoiTag,
    LacvCode,
-   Document,
+   NATODocument,
    ValidClearanceLevels,
    ValidCoiTags,
    ValidLacvCodes,
@@ -36,7 +36,7 @@ export class DocumentValidationMiddleware {
        next: NextFunction
    ): Promise<void> => {
        try {
-           const document = req.body as Partial<Document>;
+           const document = req.body as Partial<NATODocument>;
 
            // Validate required fields
            this.validateRequiredFields(document);
@@ -119,7 +119,7 @@ export class DocumentValidationMiddleware {
        }
    };
 
-   private validateRequiredFields(document: Partial<Document>): void {
+   private validateRequiredFields(document: Partial<NATODocument>): void {
        const requiredFields = ['title', 'clearance', 'releasableTo'];
        const missingFields = requiredFields.filter(field => !(field in document));
 

@@ -1,11 +1,11 @@
-// src/services/FederationMonitoringService.ts
+// At the top of files using MongoDB types
+import { Db, Collection, Document, ObjectId, WithId, MongoClient } from 'mongodb';
 import * as prometheus from 'prom-client';
 import { Redis } from 'ioredis';
 import { config } from '../config/config';
 import { LoggerService } from './LoggerService';
 import { asAuthError } from '../utils/errorUtils';
 import { HealthStatus, UserAttributes } from '../types';
-import { Db, MongoClient } from 'mongodb';
 
 export interface PartnerHealth {
    partnerId: string;
@@ -56,7 +56,7 @@ export class FederationMonitoringService {
        this.redis = new Redis(config.redis);
        this.logger = LoggerService.getInstance();
        this.metrics = this.initializeMetrics();
-       this.db = MongoClient.connect(config.mongo.uri).then(client => client.db('federation'));
+       this.db = MongoClient.connect(config.mongo.uri).then((client: MongoClient) => client.db('federation'));
    }
 
    public static getInstance(): FederationMonitoringService {
@@ -389,7 +389,7 @@ export class FederationMonitoringService {
 
    public async getActivePartners(): Promise<number> {
        try {
-           const partners = await this.db.then(db => db.collection('partners').find({ status: 'active' }).toArray());
+           const partners = await (await this.db).collection('partners').find({ status: 'active' }).toArray();
            return partners.length;
        } catch (error) {
            this.logger.error('Error getting active partners count:', error);
@@ -399,7 +399,7 @@ export class FederationMonitoringService {
 
    public async getTotalSessions(): Promise<number> {
        try {
-           const sessions = await this.db.then(db => db.collection('sessions').countDocuments({ active: true }));
+           const sessions = await (await this.db).collection('sessions').countDocuments({ active: true });
            return sessions;
        } catch (error) {
            this.logger.error('Error getting total active sessions:', error);
@@ -438,15 +438,30 @@ export class FederationMonitoringService {
            }
 
            // Partner admins can only reset their own metrics
-           const partner = await this.db.then(db => db.collection('partners').findOne({ 
+           const partner = await (await this.db).collection('partners').findOne({ 
                partnerId,
                'admins': userAttributes.uniqueIdentifier 
-           }));
+           });
             
            return !!partner;
        } catch (error) {
            this.logger.error('Error checking reset permission:', error);
            return false;
+       }
+   }
+
+   public async getPartnerHealth(partnerId: string): Promise<HealthStatus> {
+       try {
+           const metrics = await (await this.db).collection('partnerHealth')
+               .findOne({ partnerId });
+           return {
+               status: metrics?.status || 'UNKNOWN',
+               lastChecked: metrics?.lastChecked || new Date(),
+               details: metrics?.details || {}
+           };
+       } catch (error) {
+           this.logger.error('Error getting partner health:', error);
+           throw error;
        }
    }
 }

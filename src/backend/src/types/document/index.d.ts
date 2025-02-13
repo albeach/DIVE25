@@ -1,8 +1,9 @@
 // src/types/document/index.d.ts
 
 import { ObjectId } from 'mongodb';
+const id = new ObjectId();
 
-export interface Document {
+export interface NATODocument {
     _id?: ObjectId;
     title: string;
     content: {

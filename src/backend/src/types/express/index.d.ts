@@ -1,13 +1,11 @@
-declare namespace Express {
-    export interface Request {
-        userAttributes?: {
-            uniqueIdentifier: string;
-            countryOfAffiliation: string;
-            clearance: string;
-            coiTags?: string[];
-            lacvCode?: string;
-            organizationalAffiliation?: string;
-        };
-        document?: any;
+import { UserAttributes } from '../types';
+
+declare global {
+    namespace Express {
+        interface Request {
+            userAttributes: UserAttributes;
+            document?: NATODocument;
+            startTime?: number;
+        }
     }
 }
