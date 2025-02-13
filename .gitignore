@@ -97,3 +97,9 @@ node_modules/*
 ./scripts/setup/monitoring.sh.txt.txt
 ./scripts/setup/monitoring.sh.txt.txt.txt
 ./scripts/setup/monitoring.sh.txt.txt.txt.txt
+/certificates/dev
+/llm_text_transcripts
+merge-repo.js
+/docker/monitoring/grafana
+/certificates/prod
+docker/monitoring/grafana/grafana.db
