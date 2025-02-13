@@ -48,7 +48,7 @@ The outcome is a system where users authenticate via their own IdP, attributes a
 ### 1. Clone Repository
 ```bash
 git clone https://github.com/organization/dive25.git
-cd dive25
+cd DIVE25
 ```
 
 ### 2. Set Up Environment Variables
