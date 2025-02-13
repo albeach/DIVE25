@@ -33,3 +33,4 @@
 ./certificates/prod/chain.csr.pem.txt
 ./certificates/prod/chain.csr.pem.txt.txt
 .docker/monitoring/grafana/*
+.claudesync

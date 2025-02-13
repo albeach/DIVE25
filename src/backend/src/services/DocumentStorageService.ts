@@ -311,7 +311,7 @@ export class DocumentStorageService {
             this.STORAGE_CONFIG.ENCRYPTION_ALGORITHM,
             Buffer.from(config.storage.encryptionKey, 'hex'),
             iv,
-            { authTagLength: this.STORAGE_CONFIG.AUTH_TAG_LENGTH }
+            { authTagLength: this.STORAGE_CONFIG.AUTH_TAG_LENGTH } as crypto.CipherGCMOptions
         );
 
         // Encrypt content
@@ -321,7 +321,7 @@ export class DocumentStorageService {
         ]);
 
         // Get authentication tag
-        const authTag = cipher.getAuthTag();
+        const authTag = (cipher as crypto.CipherGCM).getAuthTag();
 
         return { encrypted, iv, authTag };
     }
@@ -340,10 +340,10 @@ export class DocumentStorageService {
             this.STORAGE_CONFIG.ENCRYPTION_ALGORITHM,
             Buffer.from(config.storage.encryptionKey, 'hex'),
             encryptedData.iv,
-            { authTagLength: this.STORAGE_CONFIG.AUTH_TAG_LENGTH }
+            { authTagLength: this.STORAGE_CONFIG.AUTH_TAG_LENGTH } as crypto.CipherGCMOptions
         );
 
-        decipher.setAuthTag(encryptedData.authTag);
+        (decipher as crypto.DecipherGCM).setAuthTag(encryptedData.authTag);
 
         return Buffer.concat([
             decipher.update(encryptedData.encrypted),
@@ -468,6 +468,14 @@ export class DocumentStorageService {
         }
 
         return storageError;
+    }
+
+    /**
+     * Deletes encrypted content from storage location.
+     */
+    private async deleteEncryptedContent(location: string): Promise<void> {
+        // Implementation would depend on your storage backend
+        // Could be file system, object storage, etc.
     }
 }
 

@@ -2,7 +2,7 @@ import * as prometheus from 'prom-client';
 import { Redis } from 'ioredis';
 import { LoggerService } from './LoggerService';
 import { config } from '../config/config';
-import { MetricValue, HealthStatus, ClearanceLevel } from '../types';
+import { MetricValue, HealthStatus, ClearanceLevel, AuthError } from '../types';
 
 /**
  * Service responsible for collecting, storing, and analyzing system metrics
@@ -41,6 +41,12 @@ export class MetricsService {
         // Partner metrics
         partnerHealth: prometheus.Gauge;
         partnerResponseTime: prometheus.Histogram;
+
+        // Database connection metrics
+        databaseStatus: prometheus.Counter;
+
+        // Route error metrics
+        routeErrors: prometheus.Counter;
     };
 
     // Metric retention configuration
@@ -155,6 +161,18 @@ export class MetricsService {
                 help: 'Federation partner response time',
                 labelNames: ['partner_id', 'operation'],
                 buckets: [0.1, 0.5, 1, 2, 5]
+            }),
+
+            databaseStatus: new prometheus.Counter({
+                name: 'database_connection_status',
+                help: 'Database connection status',
+                labelNames: ['status', 'timestamp']
+            }),
+
+            routeErrors: new prometheus.Counter({
+                name: 'route_errors_total',
+                help: 'Total number of route errors',
+                labelNames: ['path', 'errorType', 'statusCode']
             })
         };
     }
@@ -349,7 +367,7 @@ export class MetricsService {
             ] = await Promise.all([
                 this.calculateErrorRate(),
                 this.calculateAverageResponseTime(),
-                this.getFailedAuthentications()
+                this.getFailedAuthentications('NATO')
             ]);
 
             // Determine health status based on thresholds
@@ -362,8 +380,11 @@ export class MetricsService {
             return {
                 status,
                 lastChecked: new Date(),
-                responseTime,
-                errorCount: failedAuths
+                details: {
+                    responseTime,
+                    errorRate,
+                    availability: 1 - errorRate
+                }
             };
 
         } catch (error) {
@@ -397,6 +418,36 @@ export class MetricsService {
             throw error;
         }
     }
+
+    // Add to src/services/MetricsService.ts
+
+public recordRouteError(path: string, error: Error): void {
+    try {
+        this.metrics.errorResponses.inc({
+            path,
+            error_type: error.name,
+            code: (error as AuthError).code || 'UNKNOWN'
+        });
+
+        // Store error details in Redis for analysis
+        const errorKey = `error:${Date.now()}:${path}`;
+        const errorData = {
+            path,
+            error: error.message,
+            stack: error.stack,
+            timestamp: new Date()
+        };
+
+        this.redis.setex(
+            errorKey,
+            this.METRIC_RETENTION.REAL_TIME,
+            JSON.stringify(errorData)
+        );
+
+    } catch (err) {
+        this.logger.error('Error recording route error:', err);
+    }
+}
 
     // Private helper methods
 
@@ -443,14 +494,30 @@ export class MetricsService {
         return 0;
     }
 
-    private async calculateAverageResponseTime(): Promise<number> {
-        // Implementation for response time calculation
-        return 0;
+    public async calculateAverageResponseTime(): Promise<number> {
+        try {
+            const histogram = await this.metrics.httpRequestDuration.get();
+            return Promise.resolve(
+                histogram.values.reduce((sum, value) => sum + value.value, 0) / histogram.values.length
+            );
+        } catch (error) {
+            this.logger.error('Error calculating average response time:', error);
+            return Promise.resolve(0);
+        }
     }
 
-    private async getFailedAuthentications(): Promise<number> {
-        // Implementation for failed authentication count
-        return 0;
+    public getFailedAuthentications(scope: string): Promise<number> {
+        try {
+            return this.metrics.failedAuthentications
+                .get()
+                .then(metric => metric.values
+                    .filter(v => v.labels.reason === scope)
+                    .reduce((sum, value) => sum + value.value, 0)
+                );
+        } catch (error) {
+            this.logger.error('Error getting failed authentications:', error);
+            return Promise.resolve(0);
+        }
     }
 
     private determineHealthStatus(
@@ -503,14 +570,77 @@ export class MetricsService {
         }
     }
 
-    public recordDocumentOperation(operation: string): void {
+    public recordDocumentOperation(operation: string, options?: Record<string, any>): void {
         try {
             this.metrics.documentAccesses.inc({
                 operation_type: operation,
-                success: 'true'
+                success: 'true',
+                ...options
             });
         } catch (error) {
             this.logger.error('Error recording document operation:', error);
+        }
+    }
+
+    public recordDatabaseConnection(status: 'connected' | 'disconnected' | 'failed'): void {
+        try {
+            this.metrics.databaseStatus.inc({
+                status,
+                timestamp: new Date().toISOString()
+            });
+        } catch (error) {
+            this.logger.error('Error recording database connection:', error);
+        }
+    }
+
+    public async recordSystemMetric(name: string, value: number): Promise<void> {
+        try {
+            if (this.metrics[name as keyof typeof this.metrics] instanceof prometheus.Gauge) {
+                (this.metrics[name as keyof typeof this.metrics] as prometheus.Gauge).set(value);
+            } else {
+                this.logger.error(`Metric ${name} is not a Gauge`);
+            }
+        } catch (error) {
+            this.logger.error(`Error recording system metric ${name}:`, error);
+        }
+    }
+
+    public getActiveConnections(): Promise<number> {
+        try {
+            return this.metrics.totalRequests
+                .get()
+                .then(metric => metric.values.reduce((sum, value) => sum + value.value, 0));
+        } catch (error) {
+            this.logger.error('Error getting active connections:', error);
+            return Promise.resolve(0);
+        }
+    }
+
+    public getAccessViolations(scope: string): Promise<number> {
+        try {
+            return Promise.resolve(
+                this.metrics.errorResponses
+                    .get()
+                    .then(metric => metric.values
+                        .filter(v => v.labels.status === '403' && v.labels.scope === scope)
+                        .reduce((sum, value) => sum + value.value, 0)
+                    )
+            );
+        } catch (error) {
+            this.logger.error('Error getting access violations:', error);
+            return Promise.resolve(0);
+        }
+    }
+
+    public recordRouteError(path: string, error: Error): void {
+        try {
+            this.metrics.routeErrors.inc({
+                path,
+                errorType: error.name,
+                statusCode: (error as any).statusCode || 500
+            });
+        } catch (err) {
+            this.logger.error('Error recording route error metric:', err);
         }
     }
 }

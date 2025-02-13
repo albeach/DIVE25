@@ -90,9 +90,10 @@ class App {
     private createAuthenticatedHandler(
         handler: (req: AuthenticatedRequest, res: Response) => Promise<void>
     ): RequestHandler {
-        return async (req: Request, res: Response, next: NextFunction) => {
+        return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
             if (!isAuthenticatedRequest(req)) {
-                return res.status(401).json({ error: 'Not authenticated' });
+                res.status(401).json({ error: 'Not authenticated' });
+                return;
             }
             try {
                 await handler(req, res);
@@ -142,9 +143,10 @@ class App {
 
         this.app.post('/api/documents',
             AuthMiddleware.requireClearance('NATO CONFIDENTIAL') as RequestHandler,
-            this.createAuthenticatedHandler((req, res) => 
-                documentController.createDocument(req, res)
-            )
+            this.createAuthenticatedHandler(async (req, res) => {
+                const document = await documentController.createDocument(req.body, req.userAttributes);
+                res.status(201).json(document);
+            })
         );
 
         this.app.put('/api/documents/:id',

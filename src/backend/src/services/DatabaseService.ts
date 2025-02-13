@@ -6,7 +6,10 @@ import {
   IndexSpecification,
   FindOptions,
   UpdateOptions,
-  DeleteOptions
+  DeleteOptions,
+  Sort,
+  FindOneAndUpdateOptions,
+  IndexDescription
 } from 'mongodb';
 import { config } from '../config/config';
 import { 
@@ -14,7 +17,9 @@ import {
   DocumentSearchQuery,
   PaginationOptions,
   DocumentMetadata,
-  AuthError
+  AuthError,
+  AuditLogDocument,
+  DocumentVersionInfo
 } from '../types';
 import { LoggerService } from './LoggerService';
 import { MetricsService } from './MetricsService';
@@ -116,7 +121,7 @@ export class DatabaseService {
               throw new Error('Invalid document ID format');
           }
 
-          const collection = this.getCollection(this.COLLECTIONS.DOCUMENTS);
+          const collection = await this.getCollection<NATODocument>(this.COLLECTIONS.DOCUMENTS);
           const document = await collection.findOne({ _id: new ObjectId(id) });
 
           if (document) {
@@ -124,7 +129,7 @@ export class DatabaseService {
               await this.recordDocumentAccess(id, 'read');
           }
 
-          return document;
+          return document as NATODocument | null;
 
       } catch (error) {
           this.logger.error('Error retrieving document:', error);
@@ -143,7 +148,7 @@ export class DatabaseService {
       try {
           this.validateDatabaseConnection();
           
-          const collection = this.getCollection(this.COLLECTIONS.DOCUMENTS);
+          const collection = await this.getCollection(this.COLLECTIONS.DOCUMENTS);
           const searchQuery = this.buildSearchQuery(query);
           
           const {
@@ -155,7 +160,7 @@ export class DatabaseService {
           // Execute search with proper indexing
           const documents = await collection
               .find(searchQuery)
-              .sort(sort)
+              .sort(sort as Sort)
               .skip((page - 1) * limit)
               .limit(limit)
               .toArray();
@@ -163,7 +168,7 @@ export class DatabaseService {
           // Record search operation
           await this.recordDocumentAccess(null, 'search', { query });
 
-          return documents;
+          return documents as NATODocument[];
 
       } catch (error) {
           this.logger.error('Error searching documents:', error);
@@ -184,7 +189,7 @@ export class DatabaseService {
           // Validate document structure
           this.validateDocumentStructure(document);
 
-          const collection = this.getCollection(this.COLLECTIONS.DOCUMENTS);
+          const collection = await this.getCollection<NATODocument>(this.COLLECTIONS.DOCUMENTS);
           
           // Add system metadata
           const documentToInsert = {
@@ -236,7 +241,7 @@ export class DatabaseService {
               throw new Error('Invalid document ID format');
           }
 
-          const collection = this.getCollection(this.COLLECTIONS.DOCUMENTS);
+          const collection = await this.getCollection(this.COLLECTIONS.DOCUMENTS);
           
           // Get current document for version tracking
           const currentDocument = await this.getDocument(id);
@@ -254,27 +259,58 @@ export class DatabaseService {
               'metadata.version': currentDocument.metadata.version + 1
           };
 
-          const result = await collection.findOneAndUpdate(
+          const result = await (await collection).findOneAndUpdate(
               { _id: new ObjectId(id) },
               { $set: updateDocument },
-              { ...options, returnDocument: 'after' }
+              { ...options, returnDocument: 'after' } as FindOneAndUpdateOptions
           );
 
           // Record update in audit log
           if (result) {
               await this.recordDocumentAccess(id, 'update', { 
                   oldVersion: currentDocument.metadata.version,
-                  newVersion: result.metadata.version
+                  newVersion: (result as unknown as NATODocument).metadata.version
               });
           }
 
-          return result;
+          return result as NATODocument | null;
 
       } catch (error) {
           this.logger.error('Error updating document:', error);
           throw this.createDatabaseError(error, 'Failed to update document');
       }
   }
+
+  // src/services/DatabaseService.ts
+
+public async getDocumentVersions(id: string): Promise<DocumentVersionInfo[]> {
+  try {
+      this.validateDatabaseConnection();
+      
+      if (!ObjectId.isValid(id)) {
+          throw new Error('Invalid document ID format');
+      }
+
+      const collection = await this.getCollection<NATODocument>(this.COLLECTIONS.DOCUMENTS);
+      const versionsCollection = await this.getCollection('document_versions');
+
+      const versions = await versionsCollection
+          .find({ documentId: new ObjectId(id) })
+          .sort({ 'metadata.version': -1 })
+          .toArray();
+
+      return versions.map(v => ({
+          version: (v as unknown as NATODocument).metadata.version,
+          timestamp: (v as unknown as NATODocument).metadata.lastModified,
+          modifiedBy: (v as unknown as NATODocument).metadata.lastModifiedBy,
+          changes: (v as unknown as NATODocument).metadata.changes || []
+      }));
+
+  } catch (error) {
+      this.logger.error('Error retrieving document versions:', error);
+      throw this.createDatabaseError(error, 'Failed to retrieve document versions');
+  }
+}
 
   /**
    * Marks a document as deleted while maintaining audit trail.
@@ -292,8 +328,8 @@ export class DatabaseService {
           }
 
           // Implement soft delete instead of actual deletion
-          const collection = this.getCollection(this.COLLECTIONS.DOCUMENTS);
-          const result = await collection.updateOne(
+          const collection = await this.getCollection(this.COLLECTIONS.DOCUMENTS);
+          const result = await (await collection).updateOne(
               { _id: new ObjectId(id) },
               { 
                   $set: { 
@@ -323,9 +359,9 @@ export class DatabaseService {
   public async countDocuments(query: DocumentSearchQuery): Promise<number> {
       try {
           this.validateDatabaseConnection();
-          const collection = this.getCollection(this.COLLECTIONS.DOCUMENTS);
+          const collection = await this.getCollection(this.COLLECTIONS.DOCUMENTS);
           const searchQuery = this.buildSearchQuery(query);
-          return await collection.countDocuments(searchQuery);
+          return await (await collection).countDocuments(searchQuery);
       } catch (error) {
           this.logger.error('Error counting documents:', error);
           throw this.createDatabaseError(error, 'Failed to count documents');
@@ -339,10 +375,10 @@ export class DatabaseService {
    */
   private async initializeDatabase(): Promise<void> {
       try {
-          const collection = this.getCollection(this.COLLECTIONS.DOCUMENTS);
+          const collection = await this.getCollection(this.COLLECTIONS.DOCUMENTS);
           
           // Create indexes for optimal query performance
-          const indexes: IndexSpecification[] = [
+          const indexes: IndexDescription[] = [
               { 
                   key: { clearance: 1 },
                   name: 'idx_clearance'
@@ -517,7 +553,7 @@ export class DatabaseService {
   /**
    * Gets collection with proper typing.
    */
-  public async getCollection<T>(name: string): Promise<Collection<T>> {
+  public async getCollection<T extends { _id?: any }>(name: string): Promise<Collection<T>> {
       if (!this.db) {
           throw new Error('Database not initialized');
       }
@@ -639,7 +675,8 @@ public async validateDatabaseIntegrity(): Promise<{
       const repaired: string[] = [];
 
       // Check document integrity
-      const documents = await this.getCollection(this.COLLECTIONS.DOCUMENTS)
+      const collection = await this.getCollection(this.COLLECTIONS.DOCUMENTS);
+      const documents = await collection
           .find({})
           .toArray();
 
@@ -692,7 +729,7 @@ private validateDocumentIntegrity(document: any): boolean {
 */
 private async repairDocument(documentId: ObjectId): Promise<boolean> {
   try {
-      const collection = this.getCollection(this.COLLECTIONS.DOCUMENTS);
+      const collection = await this.getCollection<NATODocument>(this.COLLECTIONS.DOCUMENTS);
       const document = await collection.findOne({ _id: documentId });
 
       if (!document) {

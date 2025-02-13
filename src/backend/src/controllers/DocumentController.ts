@@ -11,7 +11,8 @@ import {
     PaginationOptions,
     AuthError,
     ClearanceLevel,
-    ValidationResult 
+    ValidationResult,
+    UserAttributes
 } from '../types';
 import { asAuthError } from '../utils/errorUtils';
 import { DocumentContent } from '../models/Document';
@@ -131,7 +132,10 @@ export class DocumentController {
             const documents = await this.db.searchDocuments(searchQuery, {
                 page,
                 limit,
-                sort
+                sort: {
+                    field: sortField,
+                    order: sortOrder === -1 ? 'desc' : 'asc'
+                }
             });
             
             // Filter documents based on user's security attributes
@@ -197,13 +201,14 @@ export class DocumentController {
      * Creates a new document with security metadata.
      * Validates user has appropriate clearance to create documents at specified level.
      */
-    public async createDocument(req: AuthenticatedRequest, res: Response): Promise<void> {
+    public async createDocument(
+        documentData: Partial<NATODocument>,
+        userAttributes: UserAttributes
+    ): Promise<NATODocument> {
         const startTime = Date.now();
         try {
-            const documentData = this.validateDocumentData(req.body);
-
             // Ensure user has sufficient clearance to create document
-            if (!documentData.clearance || !this.hasAdequateClearance(req.userAttributes.clearance, documentData.clearance)) {
+            if (!documentData.clearance || !this.hasAdequateClearance(userAttributes.clearance, documentData.clearance)) {
                 throw this.createError(
                     'Insufficient clearance to create document',
                     403,
@@ -216,36 +221,33 @@ export class DocumentController {
                 ...documentData,
                 metadata: {
                     createdAt: new Date(),
-                    createdBy: req.userAttributes.uniqueIdentifier,
+                    createdBy: userAttributes.uniqueIdentifier,
                     lastModified: new Date(),
                     version: 1
                 }
             } as Omit<NATODocument, '_id'>);
 
             // Record metrics
-            this.metrics.recordHttpRequest(req.method, req.path, 201, Date.now() - startTime);
+            this.metrics.recordHttpRequest('POST', '/documents', 201, Date.now() - startTime);
 
             this.logger.info('Document created', {
-                userId: req.userAttributes.uniqueIdentifier,
+                userId: userAttributes.uniqueIdentifier,
                 documentId: newDocument._id,
                 clearance: newDocument.clearance,
                 duration: Date.now() - startTime
             });
 
-            res.status(201).json({ document: newDocument });
+            return newDocument;
 
         } catch (error) {
             const typedError = asAuthError(error);
             
             this.logger.error('Error creating document', {
                 error: typedError,
-                userId: req.userAttributes.uniqueIdentifier
+                userId: userAttributes.uniqueIdentifier
             });
 
-            res.status(typedError.statusCode || 500).json({
-                error: typedError.message || 'Internal server error',
-                code: typedError.code || 'DOC000'
-            });
+            throw typedError;
         }
     }
 
@@ -321,6 +323,101 @@ export class DocumentController {
             });
         }
     }
+    // Add to src/controllers/DocumentController.ts
+
+public async deleteDocument(id: string, userAttributes: UserAttributes): Promise<void> {
+  try {
+      const document = await this.db.getDocument(id);
+      if (!document) {
+          throw this.createError('Document not found', 404, 'DOC002');
+      }
+
+      // Check delete permissions using OPA
+      const deleteResult = await this.opa.evaluateUpdateAccess(
+          userAttributes,
+          document
+      );
+
+      if (!deleteResult.allow) {
+          throw this.createError(
+              'Insufficient permissions to delete document',
+              403,
+              'DOC005',
+              { reason: deleteResult.reason }
+          );
+      }
+
+      await this.db.deleteDocument(id);
+
+      // Record metrics
+      this.metrics.recordDocumentOperation('delete', {
+          documentId: id
+      });
+
+  } catch (error) {
+      this.logger.error('Error deleting document:', error);
+      throw this.createError('Failed to delete document', 500, 'DOC000');
+  }
+}
+
+public async getDocumentMetadata(id: string, userAttributes: UserAttributes): Promise<DocumentMetadata> {
+  try {
+      const document = await this.db.getDocument(id);
+      if (!document) {
+          throw this.createError('Document not found', 404, 'DOC002');
+      }
+
+      const accessResult = await this.opa.evaluateAccess(
+          userAttributes,
+          {
+              clearance: document.clearance,
+              releasableTo: document.releasableTo,
+              coiTags: document.coiTags,
+              lacvCode: document.lacvCode
+          }
+      );
+
+      if (!accessResult.allow) {
+          throw this.createError('Access denied', 403, 'DOC003');
+      }
+
+      return document.metadata;
+
+  } catch (error) {
+      this.logger.error('Error retrieving document metadata:', error);
+      throw this.createStorageError(error, 'Failed to retrieve document metadata');
+  }
+}
+
+public async getDocumentVersions(id: string, userAttributes: UserAttributes): Promise<DocumentMetadata[]> {
+  try {
+      const document = await this.db.getDocument(id);
+      if (!document) {
+          throw this.createError('Document not found', 404, 'DOC002');
+      }
+
+      const accessResult = await this.opa.evaluateAccess(
+          userAttributes,
+          {
+              clearance: document.clearance,
+              releasableTo: document.releasableTo,
+              coiTags: document.coiTags,
+              lacvCode: document.lacvCode
+          }
+      );
+
+      if (!accessResult.allow) {
+          throw this.createError('Access denied', 403, 'DOC003');
+      }
+
+      const versions = await this.db.getDocumentVersions(id);
+      return versions;
+
+  } catch (error) {
+      this.logger.error('Error retrieving document versions:', error);
+      throw this.createStorageError(error, 'Failed to retrieve document versions');
+  }
+}
 
     // Private helper methods
 
@@ -531,7 +628,7 @@ export class DocumentController {
 
               // Check for clearance level compatibility
               if (this.getClearanceLevel(relatedDoc.clearance) > 
-                  this.getClearanceLevel(documentId)) {
+                  this.getClearanceLevel(documentId as ClearanceLevel)) {
                   errors.push(
                       `Invalid relationship: related document has higher clearance`
                   );
@@ -585,7 +682,7 @@ export class DocumentController {
       }
 
       // Validate COI tag requirements
-      if (document.coiTags?.length > 0) {
+      if (document.coiTags && document.coiTags.length > 0) {
           const hasValidCoi = document.coiTags.every(tag => 
               userAttributes.coiTags?.includes(tag)
           );

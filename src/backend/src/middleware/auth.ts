@@ -184,7 +184,7 @@ export class AuthMiddleware {
             req.userAttributes = userAttributes;
 
             // Log attribute extraction
-            this.logger.debug('User attributes extracted', {
+            this.logger.info('User attributes extracted', {
                 userId: userAttributes.uniqueIdentifier,
                 clearance: userAttributes.clearance,
                 requestId: req.headers['x-request-id']
@@ -238,7 +238,7 @@ export class AuthMiddleware {
                 }
 
                 // Log clearance check
-                this.logger.debug('Clearance check passed', {
+                this.logger.info('Clearance check passed', {
                     userId: req.userAttributes.uniqueIdentifier,
                     clearance: userClearance,
                     requiredClearance: minimumClearance
@@ -309,7 +309,9 @@ export class AuthMiddleware {
     private async validateSecurityAttributes(
         userInfo: any
     ): Promise<void> {
-        const validationResult = await this.opa.validateSecurityAttributes({
+        const validationResult = await this.opa.validateAttributes({
+            uniqueIdentifier: userInfo.uniqueIdentifier,
+            countryOfAffiliation: userInfo.countryOfAffiliation,
             clearance: userInfo.clearance,
             coiTags: userInfo.coiTags,
             lacvCode: userInfo.lacvCode
@@ -320,7 +322,7 @@ export class AuthMiddleware {
                 'Invalid security attributes',
                 401,
                 'AUTH007',
-                { violations: validationResult.violations }
+                { missingAttributes: validationResult.missingAttributes }
             );
         }
     }

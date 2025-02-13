@@ -2,6 +2,8 @@
 import axios from 'axios';
 import { Redis } from 'ioredis';
 import { config } from '../config/config';
+import { MongoClient } from 'mongodb';
+import { Db } from 'mongodb';
 
 export interface SessionMetadata {
   sessionId: string;
@@ -18,14 +20,22 @@ export interface SessionMetadata {
   };
 }
 
+export interface SessionStats {
+  activeSessions: number;
+  averageDuration: number;
+  lastActivity: Date | null;
+}
+
 export class SessionManagementService {
   private static instance: SessionManagementService;
   private redis: Redis;
   private baseUrl: string;
+  private db: Promise<Db>;
 
   private constructor() {
     this.redis = new Redis(config.redis);
     this.baseUrl = config.pingFederate.baseUrl;
+    this.db = MongoClient.connect(config.mongo.uri).then(client => client.db('federation'));
   }
 
   public static getInstance(): SessionManagementService {
@@ -103,5 +113,55 @@ export class SessionManagementService {
     } catch (error) {
       console.error('Error notifying PingFederate of session termination:', error);
     }
+  }
+
+  public async terminatePartnerSessions(partnerId: string): Promise<void> {
+    try {
+      await this.db.then(db => db.collection('sessions').updateMany(
+        { partnerId, active: true },
+        { 
+          $set: { 
+            active: false,
+            terminatedAt: new Date(),
+            terminationReason: 'partner_deactivated'
+          }
+        }
+      ));
+    } catch (error) {
+      console.error('Error terminating partner sessions:', error);
+      throw error;
+    }
+  }
+
+  public async getPartnerSessionStats(partnerId: string): Promise<SessionStats> {
+    try {
+      const sessions = await this.db.then(db => db.collection('sessions').find({ 
+        partnerId,
+        active: true 
+      }).toArray());
+
+      return {
+        activeSessions: sessions.length,
+        averageDuration: this.calculateAverageSessionDuration(sessions),
+        lastActivity: sessions.length ? new Date(Math.max(...sessions.map(s => s.lastActivity))) : null
+      };
+    } catch (error) {
+      console.error('Error getting partner session stats:', error);
+      throw error;
+    }
+  }
+
+  private calculateAverageSessionDuration(sessions: any[]): number {
+    if (sessions.length === 0) return 0;
+    
+    const now = Date.now();
+    const totalDuration = sessions.reduce((sum, session) => {
+      const duration = session.expiresAt ? 
+        session.expiresAt - session.created : 
+        now - session.created;
+      return sum + duration;
+    }, 0);
+    
+    return Math.floor(totalDuration / sessions.length);
   }
 }

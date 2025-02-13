@@ -77,6 +77,36 @@ export interface NATODocument {
     content: DocumentContent;
 }
 
+export interface DocumentResponse<T> {
+    success: boolean;
+    data: T;
+    metadata: {
+        timestamp: Date;
+        requestId: string;
+    };
+}
+
+export interface SearchResult<T> {
+    documents: T[];
+    total: number;
+}
+
+export interface DocumentSearchOptions {
+    page: number;
+    limit: number;
+    sort?: {
+        field: string;
+        order: 'asc' | 'desc';
+    };
+}
+
+export interface DocumentVersionInfo {
+    version: number;
+    timestamp: Date;
+    modifiedBy: string;
+    changes: string[];
+}
+
 // Search and pagination interfaces
 export interface DocumentSearchQuery {
     clearance?: ClearanceLevel;
@@ -88,6 +118,7 @@ export interface DocumentSearchQuery {
         end: Date;
     };
     keywords?: string;
+    maxClearance?: ClearanceLevel;
 }
 
 export interface PaginationOptions {
@@ -134,9 +165,11 @@ export interface PartnerMetrics {
 export interface HealthStatus {
     status: 'healthy' | 'degraded' | 'down';
     lastChecked: Date;
-    responseTime: number;
-    errorCount: number;
-    message?: string;
+    details: {
+        responseTime: number;
+        errorRate: number;
+        availability: number;
+    };
 }
 
 // Federation interfaces
@@ -191,3 +224,11 @@ export interface AuditEvent {
 // Export utility type helpers
 export type Optional<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
 export type Required<T, K extends keyof T> = T & { [P in K]-?: T[P] };
+
+export interface AuditLogDocument {
+    _id?: ObjectId;
+    documentId: ObjectId | null;
+    action: string;
+    timestamp: Date;
+    details?: Record<string, any>;
+}

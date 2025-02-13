@@ -4,6 +4,8 @@ import { Redis } from 'ioredis';
 import { config } from '../config/config';
 import { LoggerService } from './LoggerService';
 import { asAuthError } from '../utils/errorUtils';
+import { HealthStatus, UserAttributes } from '../types';
+import { Db, MongoClient } from 'mongodb';
 
 export interface PartnerHealth {
    partnerId: string;
@@ -48,11 +50,13 @@ export class FederationMonitoringService {
        activeSessions: prometheus.Gauge;
        partnerHealth: prometheus.Gauge;
    };
+   private readonly db: Promise<Db>;
 
    private constructor() {
        this.redis = new Redis(config.redis);
        this.logger = LoggerService.getInstance();
        this.metrics = this.initializeMetrics();
+       this.db = MongoClient.connect(config.mongo.uri).then(client => client.db('federation'));
    }
 
    public static getInstance(): FederationMonitoringService {
@@ -187,7 +191,7 @@ export class FederationMonitoringService {
            const key = `response:${partnerId}:${endpoint}:${Date.now()}`;
            await this.redis.setex(key, 3600, timeMs.toString());
 
-           this.logger.debug('Response time recorded', {
+           this.logger.error('Response time recorded', {
                partnerId,
                endpoint,
                timeMs
@@ -208,7 +212,7 @@ export class FederationMonitoringService {
                count.toString()
            );
 
-           this.logger.debug('Session count updated', {
+           this.logger.info('Session count updated', {
                partnerId,
                count
            });
@@ -340,6 +344,109 @@ export class FederationMonitoringService {
        } catch (error) {
            this.logger.error('Error clearing metrics:', error);
            throw asAuthError(error);
+       }
+   }
+
+   public async getPartnerHealthStatus(partnerId: string): Promise<HealthStatus> {
+       try {
+           const metrics = await this.getPartnerMetrics(partnerId);
+           return {
+               status: this.calculateHealthStatus(metrics),
+               lastChecked: new Date(),
+               details: {
+                   responseTime: metrics.averageResponseTime,
+                   errorRate: metrics.failedAuthentications / metrics.authenticationAttempts,
+                   availability: 1 - (metrics.failedAuthentications / metrics.authenticationAttempts)
+               }
+           };
+       } catch (error) {
+           this.logger.error('Error getting partner health status:', error);
+           throw error;
+       }
+   }
+
+   private calculateHealthStatus(metrics: PartnerMetrics): PartnerHealth['status'] {
+       if (metrics.failedAuthentications / metrics.authenticationAttempts > 0.5) {
+           return 'down';
+       } else if (metrics.averageResponseTime > 5000) {
+           return 'degraded';
+       }
+       return 'healthy';
+   }
+
+   public async getActiveAlertCount(scope: string): Promise<number> {
+       try {
+           const alerts = await this.getHealthAlerts();
+           return alerts.filter(alert => 
+               alert.partnerId === scope && 
+               alert.severity === 'critical'
+           ).length;
+       } catch (error) {
+           this.logger.error('Error getting active alert count:', error);
+           return 0;
+       }
+   }
+
+   public async getActivePartners(): Promise<number> {
+       try {
+           const partners = await this.db.then(db => db.collection('partners').find({ status: 'active' }).toArray());
+           return partners.length;
+       } catch (error) {
+           this.logger.error('Error getting active partners count:', error);
+           return 0;
+       }
+   }
+
+   public async getTotalSessions(): Promise<number> {
+       try {
+           const sessions = await this.db.then(db => db.collection('sessions').countDocuments({ active: true }));
+           return sessions;
+       } catch (error) {
+           this.logger.error('Error getting total active sessions:', error);
+           return 0;
+       }
+   }
+
+   public async getFederationHealthStatus(): Promise<HealthStatus> {
+       try {
+           const [activePartners, totalSessions, metrics] = await Promise.all([
+               this.getActivePartners(),
+               this.getTotalSessions(),
+               this.getPartnerMetrics('federation')
+           ]);
+
+           return {
+               status: this.calculateHealthStatus(metrics),
+               lastChecked: new Date(),
+               details: {
+                   responseTime: metrics.averageResponseTime,
+                   errorRate: metrics.failedAuthentications / metrics.authenticationAttempts,
+                   availability: activePartners > 0 ? 100 : 0
+               }
+           };
+       } catch (error) {
+           this.logger.error('Error getting federation health status:', error);
+           throw error;
+       }
+   }
+
+   public async checkResetPermission(userAttributes: UserAttributes, partnerId: string): Promise<boolean> {
+       try {
+           // NATO SECRET clearance can reset any metrics
+           if (userAttributes.clearance === 'NATO SECRET') {
+               return true;
+           }
+
+           // Partner admins can only reset their own metrics
+           const partner = await this.db.then(db => db.collection('partners').findOne({ 
+               partnerId,
+               'admins': userAttributes.uniqueIdentifier 
+           }));
+            
+           return !!partner;
+       } catch (error) {
+           this.logger.error('Error checking reset permission:', error);
+           return false;
        }
    }
 }

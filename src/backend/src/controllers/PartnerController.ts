@@ -82,7 +82,7 @@ export class PartnerController {
 
             this.logger.info('Partner onboarded successfully', {
                 partnerId: partnerConfig.partnerId,
-                connectionId: partnerConnection.id,
+                connectionId: partnerConnection.partnerId,
                 duration: Date.now() - startTime
             });
 
@@ -93,8 +93,9 @@ export class PartnerController {
             });
         } catch (error) {
             this.logger.error('Partner onboarding error', { error });
+            const err = error as Error;
             res.status((error as AuthError).statusCode || 500).json({
-                error: error.message || 'Partner onboarding failed',
+                error: err.message || 'Partner onboarding failed',
                 code: (error as AuthError).code,
                 details: (error as AuthError).details
             });
@@ -127,7 +128,7 @@ export class PartnerController {
         } catch (error) {
             this.logger.error('Metadata validation error', { error });
             res.status((error as AuthError).statusCode || 500).json({
-                error: error.message || 'Metadata validation failed',
+                error: (error as Error).message || 'Metadata validation failed',
                 details: (error as AuthError).details
             });
         }
@@ -159,7 +160,7 @@ export class PartnerController {
         } catch (error) {
             this.logger.error('Error retrieving partner details', { error });
             res.status((error as AuthError).statusCode || 500).json({
-                error: error.message || 'Failed to retrieve partner details',
+                error: (error as Error).message || 'Failed to retrieve partner details',
                 details: (error as AuthError).details
             });
         }
@@ -216,7 +217,7 @@ export class PartnerController {
         } catch (error) {
             this.logger.error('Partner update error', { error });
             res.status((error as AuthError).statusCode || 500).json({
-                error: error.message || 'Failed to update partner',
+                error: (error as Error).message || 'Failed to update partner',
                 details: (error as AuthError).details
             });
         }
@@ -263,7 +264,7 @@ export class PartnerController {
         } catch (error) {
             this.logger.error('Partner deactivation error', { error });
             res.status((error as AuthError).statusCode || 500).json({
-                error: error.message || 'Failed to deactivate partner',
+                error: (error as Error).message || 'Failed to deactivate partner',
                 details: (error as AuthError).details
             });
         }
@@ -308,7 +309,7 @@ export class PartnerController {
         } catch (error) {
             this.logger.error('Partner reactivation error', { error });
             res.status((error as AuthError).statusCode || 500).json({
-                error: error.message || 'Failed to reactivate partner',
+                error: (error as Error).message || 'Failed to reactivate partner',
                 details: (error as AuthError).details
             });
         }
@@ -323,7 +324,7 @@ export class PartnerController {
         ];
 
         for (const field of requiredFields) {
-            if (!config[field]) {
+            if (!(field in config)) {
                 const error = new Error(`Missing required field: ${field}`) as AuthError;
                 error.statusCode = 400;
                 throw error;
@@ -346,7 +347,7 @@ export class PartnerController {
         ];
 
         for (const field of requiredFields) {
-            if (!config[field]) {
+            if (!(field in config)) {
                 const error = new Error(`Missing required field: ${field}`) as AuthError;
                 error.statusCode = 400;
                 throw error;

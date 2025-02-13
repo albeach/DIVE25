@@ -63,7 +63,7 @@ export class MonitoringController {
             // Gather metrics from various sources
             const [metrics, healthStatus, securityMetrics] = await Promise.all([
                 this.monitoringService.getPartnerMetrics(partnerId),
-                this.monitoringService.getPartnerHealth(partnerId),
+                this.monitoringService.getPartnerHealthStatus(partnerId),
                 this.collectSecurityMetrics(partnerId)
             ]);
 
@@ -324,7 +324,7 @@ export class MonitoringController {
 
     private async collectPerformanceMetrics() {
         return {
-            responseTime: await this.metricsService.getAverageResponseTime(),
+            responseTime: await this.metricsService.calculateAverageResponseTime(),
             activeConnections: await this.metricsService.getActiveConnections(),
             systemLoad: await this.getSystemLoad(),
             memoryUsage: await this.getMemoryUsage()
@@ -341,8 +341,8 @@ export class MonitoringController {
 
     private async collectFederationMetrics() {
         return {
-            activePartners: await this.monitoringService.getActivePartnerCount(),
-            totalSessions: await this.monitoringService.getTotalActiveSessions(),
+            activePartners: await this.monitoringService.getActivePartners(),
+            totalSessions: await this.monitoringService.getTotalSessions(),
             federationHealth: await this.monitoringService.getFederationHealthStatus()
         };
     }
@@ -405,7 +405,7 @@ export class MonitoringController {
 
         await Promise.all(
             metricsToRecord.map(([name, value]) =>
-                this.metricsService.recordPartnerMetric(partnerId, name, value)
+                this.metricsService.recordPartnerMetric(partnerId, name as string, value as number)
             )
         );
     }

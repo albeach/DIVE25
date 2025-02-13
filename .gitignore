@@ -83,7 +83,8 @@ docker/monitoring/grafana/plugins/grafana-lokiexplore-app/1759fd27b2c9f73dea05.w
 *.env
 .env.*
 !.env.example
-src/backend/src/node_modules/*
 ./src/backend/src/node_modules/*
 node_modules/*
 ./node_modules/*
+./src/backend/node_modules/*
+./src/backend/src/node_modules/*

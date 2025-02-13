@@ -1,7 +1,7 @@
 // src/backend/src/middleware/documentAccess.ts
 
 import { Request, Response, NextFunction } from 'express';
-import { OPAService } from '../services/OPAService';
+import { OPAService, UserAttributes } from '../services/OPAService';
 import { DocumentStorageService } from '../services/DocumentStorageService';
 import { LoggerService } from '../services/LoggerService';
 
@@ -42,8 +42,8 @@ export async function documentAccessMiddleware(
 
         // Evaluate access using our NATO ABAC policy
         const accessResult = await opaService.evaluateDocumentAccess(
-            userAttributes,
-            document,
+            userAttributes as UserAttributes,
+            document.document,
             action
         );
 
