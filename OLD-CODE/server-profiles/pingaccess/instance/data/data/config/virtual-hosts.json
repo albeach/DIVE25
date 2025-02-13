@@ -1,0 +1,11 @@
+{
+  "hostPorts": [
+    {
+      "id": 1,
+      "host": "dive25.local",
+      "port": 443,
+      "secure": true,
+      "trustedCertificateGroupId": 0
+    }
+  ]
+}

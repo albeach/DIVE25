@@ -1,6 +1,3 @@
-# docker-compose.yml
-
-# Common environment variables shared across services
 x-common-variables: &common-variables
   PING_IDENTITY_ACCEPT_EULA: "YES"
   PING_IDENTITY_DEVOPS_USER: ${PING_IDENTITY_DEVOPS_USER}

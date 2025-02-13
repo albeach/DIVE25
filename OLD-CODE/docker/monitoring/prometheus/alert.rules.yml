@@ -1,0 +1,30 @@
+# docker/monitoring/prometheus/alert.rules.yml
+groups:
+  - name: federation_alerts
+    rules:
+      - alert: HighAuthFailureRate
+        expr: rate(federation_auth_failures_total[5m]) / rate(federation_auth_attempts_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: High authentication failure rate
+          description: Authentication failure rate is above 10% for the last 5 minutes
+
+      - alert: PartnerDown
+        expr: federation_partner_health == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Federation partner is down
+          description: Federation partner {{ $labels.partner_id }} is down
+
+      - alert: SlowResponseTime
+        expr: federation_response_time_seconds > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Slow federation response time
+          description: Federation response time is above 2 seconds
