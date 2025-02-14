@@ -78,8 +78,7 @@ Modify the necessary Kubernetes configuration files in `k8s/` before deployment.
 ### Docker Configuration
 Ensure that Docker is set up correctly and required images are available.
 ```bash
-docker compose -f docker-compose.dev.yml pull
-docker compose -f docker-compose.dev.yml up -d
+docker compose -f docker-compose.yml pull
 ```
 
 ### Helm Setup
