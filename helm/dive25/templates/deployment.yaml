@@ -27,6 +27,12 @@ spec:
           volumeMounts:
             - name: serverprofiles
               mountPath: /opt/out
+        - name: permission-fix-staging
+          image: busybox
+          command: ['sh', '-c', 'chmod -R 755 /opt/staging']
+          volumeMounts:
+            - name: staging
+              mountPath: /opt/staging
       containers:
         - name: dive25
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -64,4 +70,6 @@ spec:
             name: {{ include "dive25.fullname" . }}-pingconfig
         - name: serverprofiles
           persistentVolumeClaim:
-            claimName: {{ .Values.serverProfilesPVC }} 
+            claimName: {{ .Values.serverProfilesPVC }}
+        - name: staging
+          emptyDir: {} 

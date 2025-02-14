@@ -1,4 +1,11 @@
 services:
+  fix-cert-permissions:
+    image: busybox
+    command: ["sh", "-c", "chmod -R 755 /certificates/prod"]
+    volumes:
+      - ./certificates/prod:/certificates/prod
+    restart: "no"
+
   pingfederate:
     deploy:
       replicas: 2
@@ -14,6 +21,10 @@ services:
     ports:
       - "9031:9031"     # Runtime port (SSL)
       - "9999:9999"    # Admin console (internal only)
+    volumes:
+      - ./certificates/prod:/opt/certificates/prod
+    depends_on:
+      - fix-cert-permissions
 
   pingaccess:
     deploy:
@@ -63,9 +74,30 @@ services:
     image: grafana/grafana:latest
     volumes:
       - ./monitoring/grafana:/var/lib/grafana
+      - ./monitoring/grafana/grafana.ini:/etc/grafana/grafana.ini:ro
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_PATHS_CONFIG=/etc/grafana/grafana.ini
     ports:
       - "3050:4000"
     networks:
       - dive25-net
+    command: ["/bin/sh", "-c", "chmod 644 /etc/grafana/grafana.ini && /run.sh"]
+
+  backend:
+    build: ./src/backend
+    environment:
+      - NODE_ENV=production
+      - SERVER_PROFILE_URL=http://serverprofile.example.com
+      - PING_IDENTITY_USER=ping-user
+      - PING_IDENTITY_KEY=ping-key
+      - PING_IDENTITY_PASSWORD=dive2025P!ng
+      - PA_ADMIN_PASSWORD_INITIAL=2Access
+    ports:
+      - "8080:8080"
+    depends_on:
+      - pingfederate
+
+networks:
+  dive25-net:
+    driver: bridge

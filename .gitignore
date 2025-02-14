@@ -110,3 +110,5 @@ src/backend/coverage/*
 src/backend/logs/*
 src/backend/tmp/*
 src/backend/src/node_modules/*
+merge-repo.js
+wp-salts.txt

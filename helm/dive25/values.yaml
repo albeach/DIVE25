@@ -13,6 +13,8 @@ serverProfileUrl: "http://serverprofile.example.com"
 pingIdentity:
   user: "ping-user"
   key: "ping-key"
+  password: "your_ping_identity_password_here"
+  adminPasswordInitial: "your_pa_admin_password_here"
 
 certificatesPVC: "dive25-certificates"
 

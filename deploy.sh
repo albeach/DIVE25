@@ -17,12 +17,6 @@ source "${SCRIPT_DIR}/scripts/setup/monitoring.sh"
 source "${SCRIPT_DIR}/scripts/deployment/profiles.sh"
 source "${SCRIPT_DIR}/scripts/deployment/containers.sh"
 
-export WP_DB_PASSWORD=Dive25Admin123!
-export MYSQL_ROOT_PASSWORD=Dive25Admin123!
-export MONGO_ROOT_USER=dive25mongo
-export MONGO_ROOT_PASSWORD=Dive25Mongo123!
-export GRAFANA_ADMIN_PASSWORD=Dive25Admin123!
-
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -41,6 +35,12 @@ log() {
         "ERROR") echo -e "${RED}[ERROR]${NC} ${timestamp} - $message" ;;
     esac
 }
+
+# Detect if running on Apple Silicon ARM64 and set Docker platform flag
+if [[ "$(uname)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
+    export DOCKER_PLATFORM_FLAG="--platform linux/arm64"
+    log "INFO" "Detected Apple Silicon ARM64. Docker commands will use platform flag: $DOCKER_PLATFORM_FLAG."
+fi
 
 # Function to check prerequisites
 check_prerequisites() {
@@ -73,18 +73,19 @@ check_prerequisites() {
 
 # New function to check required environment variables
 check_required_env_vars() {
-  local missing=false
-  local required_vars=("WP_DB_PASSWORD" "MYSQL_ROOT_PASSWORD" "MONGO_ROOT_USER" "MONGO_ROOT_PASSWORD")
-  for var in "${required_vars[@]}"; do
-    if [ -z "${!var}" ]; then
-      log "ERROR" "Required environment variable ${var} is not set."
-      missing=true
-    fi
-  done
-  if [ "$missing" = true ]; then
-    log "ERROR" "One or more required environment variables are missing. Aborting deployment."
-    exit 1
-  fi
+    local required_vars=("WP_DB_PASSWORD" "MYSQL_ROOT_PASSWORD" "MONGO_ROOT_USER" "MONGO_ROOT_PASSWORD" "GRAFANA_ADMIN_PASSWORD")
+    for var in "${required_vars[@]}"; do
+        if [ -z "${!var}" ]; then
+            if [ "$var" = "MONGO_ROOT_USER" ]; then
+                log "INFO" "Environment variable MONGO_ROOT_USER is not set, defaulting to 'dive25mongo'."
+                export MONGO_ROOT_USER="dive25mongo"
+            else
+                read -s -p "Enter value for $var: " value
+                echo ""
+                eval "export $var='$value'"
+            fi
+        fi
+    done
 }
 
 # Function to build TypeScript
@@ -122,7 +123,6 @@ configure_ping_identity() {
 # Function to deploy development environment
 deploy_development() {
     log "INFO" "Starting development environment deployment..."
-    build_typescript
     
     # Setup development certificates
     setup_development_certificates
@@ -135,7 +135,10 @@ deploy_development() {
     
     # Apply Ping Identity configurations
     configure_ping_identity
-    
+
+    # Fix permissions on mounted volumes in the container
+    fix_permissions
+
     # Setup monitoring
     setup_monitoring "dev"
     
@@ -145,7 +148,6 @@ deploy_development() {
 # Function to deploy production environment
 deploy_production() {
     log "INFO" "Starting production environment deployment..."
-    build_typescript
     
     # Setup Let's Encrypt certificates
     setup_production_certificates
@@ -158,11 +160,31 @@ deploy_production() {
     
     # Apply Ping Identity configurations
     configure_ping_identity
-    
+
+    # Fix permissions on mounted volumes in the container
+    fix_permissions
+
     # Setup monitoring with alerting
     setup_monitoring "prod"
     
     log "INFO" "Production deployment completed successfully"
+}
+
+# New function to fix permissions on mounted volumes
+fix_permissions() {
+    # Use CONTAINER_NAME if set, otherwise default to 'ping-manager'
+    : "${CONTAINER_NAME:=ping-manager}"
+    log "INFO" "Fixing permissions on mounted volumes in container $CONTAINER_NAME..."
+    
+    docker exec "$CONTAINER_NAME" chmod -R 755 /opt/certificates/prod
+    docker exec "$CONTAINER_NAME" chmod -R 755 /opt/out
+    docker exec "$CONTAINER_NAME" sh -c 'if [ -d /certificates ]; then cp -r /certificates/* /opt/certificates/prod/; fi'
+    
+    if [ $? -ne 0 ]; then
+       log "ERROR" "Permission fix failed on container $CONTAINER_NAME"
+       exit 1
+    fi
+    log "INFO" "Permissions fixed successfully"
 }
 
 # Main execution
@@ -187,18 +209,9 @@ main() {
             deploy_production
             ;;
     esac
-}
 
-# New function for Kubernetes/Helm deployment
-deploy_k8s() {
-    local environment=$1
-    log "INFO" "Starting Kubernetes/Helm deployment for environment: ${environment}"
-    helm upgrade --install dive25 helm/dive25 --values helm/dive25/values.yaml --namespace dive25 --create-namespace
-    if [ $? -ne 0 ]; then
-        log "ERROR" "Helm deployment failed"
-        exit 1
-    fi
-    log "INFO" "Kubernetes/Helm deployment completed successfully"
+    echo "Pausing for 5 seconds to allow containers to stabilize. Please watch the terminal..."
+    sleep 5
 }
 
 # Script execution
@@ -248,19 +261,6 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
                 ;;
         esac
     done
-    
-    # New: Prompt the user to select the deployment method if not set via command-line/environment
-    if [ -z "$DEPLOYMENT_METHOD" ]; then
-        echo "Select deployment method:"
-        echo "1) Docker Compose"
-        echo "2) Kubernetes/Helm"
-        read -p "Enter selection (1 or 2): " selection
-        case $selection in
-            1) DEPLOYMENT_METHOD="docker" ;;
-            2) DEPLOYMENT_METHOD="k8s" ;;
-            *) echo "Invalid selection. Exiting."; exit 1 ;;
-        esac
-    fi
     
     # Validate required parameters
     if [[ -z "$ENVIRONMENT" || -z "$PING_IDENTITY_DEVOPS_USER" || -z "$PING_IDENTITY_DEVOPS_KEY" ]]; then

@@ -34,3 +34,4 @@
 ./certificates/prod/chain.csr.pem.txt.txt
 .docker/monitoring/grafana/*
 .claudesync
+.error-log.txt

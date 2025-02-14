@@ -220,10 +220,10 @@ optional_lacv_ok if {
 ###############################################################################
 # 9. Helper Functions
 ###############################################################################
-is_array(x) = true {
+is_array(x) = true if {
   count(x) >= 0
 }
 
-is_array(x) = false {
+is_array(x) = false if {
   not count(x)
 }

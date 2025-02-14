@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@open-policy-agent/opa-wasm": "^1.10.0",
+    "express-rate-limit": "latest",
     "axios": "^1.7.9",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",

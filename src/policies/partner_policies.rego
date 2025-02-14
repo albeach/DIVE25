@@ -39,13 +39,13 @@ partner_policies = {
 }
 
 # Partner-specific access control
-allow {
+allow = true if {
     basic_access_allowed
     partner_specific_rules_satisfied
 }
 
 # Check if partner has access to the classification level
-partner_specific_rules_satisfied {
+partner_specific_rules_satisfied = true if {
     partner_type := get_partner_type(input.user.countryOfAffiliation)
     policy := partner_policies[partner_type]
     
@@ -60,34 +60,34 @@ partner_specific_rules_satisfied {
 }
 
 # Helper functions
-get_partner_type(country) = "FVEY" {
+get_partner_type(country) = "FVEY" if {
     fvey_nations[country]
 }
 
-get_partner_type(country) = "NATO" {
+get_partner_type(country) = "NATO" if {
     nato_nations[country]
 }
 
-get_partner_type(country) = "EU" {
+get_partner_type(country) = "EU" if {
     eu_nations[country]
 }
 
-all_required_caveats_present(required_caveats) {
+all_required_caveats_present(required_caveats) if {
     count(required_caveats) == 0
 }
 
-all_required_caveats_present(required_caveats) {
+all_required_caveats_present(required_caveats) if {
     count(required_caveats) > 0
     every caveat in required_caveats {
         caveat in input.user.caveats
     }
 }
 
-all_coi_tags_allowed(allowed_tags) {
+all_coi_tags_allowed(allowed_tags) if {
     count(input.resource.coiTags) == 0
 }
 
-all_coi_tags_allowed(allowed_tags) {
+all_coi_tags_allowed(allowed_tags) if {
     count(input.resource.coiTags) > 0
     every tag in input.resource.coiTags {
         tag in allowed_tags
