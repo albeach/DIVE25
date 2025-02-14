@@ -24,9 +24,9 @@ default allow = false
 clearance = {
   "UNCLASSIFIED":          0,
   "RESTRICTED":            1,
-  "NATO CONFIDENTIAL":     2,
-  "NATO SECRET":           3,
-  "COSMIC TOP SECRET":     4
+  "CONFIDENTIAL":          2,
+  "SECRET":                3,
+  "TOP SECRET":            4
 }
 
 nato_nations = {
@@ -214,7 +214,7 @@ optional_lacv_ok if {
 
 optional_lacv_ok if {
   input.resource.lacvCode
-  input.user.clearance == "COSMIC TOP SECRET"
+  input.user.clearance == "TOP SECRET"
 }
 
 ###############################################################################
