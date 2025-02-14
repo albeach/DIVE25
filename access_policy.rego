@@ -214,7 +214,7 @@ optional_lacv_ok if {
 
 optional_lacv_ok if {
   input.resource.lacvCode
-  input.user.clearance == "COSMIC TOP SECRET"
+  input.user.clearance == "TOP SECRET"
 }
 
 ###############################################################################
