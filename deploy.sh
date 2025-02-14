@@ -158,15 +158,18 @@ deploy_production() {
     
     # Prompt to optionally skip Let's Encrypt certificate generation
     read -p "Do you want to skip Let's Encrypt certificate generation? (y/N): " skip_cert_input
-    if [[ "$skip_cert_input" =~ ^[Yy]$ ]]; then
+    if [[ "${skip_cert_input,,}" == "y" ]]; then
          log "INFO" "Skipping Let's Encrypt certificate generation as per user request."
          export SKIP_LETSENCRYPT=true
     else
          log "INFO" "Generating Let's Encrypt certificates..."
-         setup_production_certificates || { log "ERROR" "Let's Encrypt certificate generation failed."; exit 1; }
+         if ! setup_production_certificates; then
+              log "ERROR" "Let's Encrypt certificate generation failed. Please fix this before proceeding."
+              exit 1
+         fi
     fi
 
-    # If skipping, warn if expected certificate file is missing
+    # If skipping, warn if the expected certificate file is missing
     if [ "$SKIP_LETSENCRYPT" = true ]; then
          if [ ! -f "./certificates/prod/cert.pem" ]; then
               log "WARN" "Expected certificate file './certificates/prod/cert.pem' not found. Ensure your deployment does not depend on these certificates."
