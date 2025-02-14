@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "dive25.fullname" . }}-pingconfig
+  labels:
+    app: {{ include "dive25.name" . }}
+data:
+  dive25-pingconfigs.sh: |
+    #!/bin/sh
+    # Check if certificates directory exists and copy certificates to the server profile directory
+    if [ -d /certificates ]; then
+      echo "Loading certificates from /certificates into /opt/certificates/prod"
+      cp -r /certificates/* /opt/certificates/prod/
+    else
+      echo "No certificates found at /certificates."
+    fi 

@@ -189,6 +189,18 @@ main() {
     esac
 }
 
+# New function for Kubernetes/Helm deployment
+deploy_k8s() {
+    local environment=$1
+    log "INFO" "Starting Kubernetes/Helm deployment for environment: ${environment}"
+    helm upgrade --install dive25 helm/dive25 --values helm/dive25/values.yaml --namespace dive25 --create-namespace
+    if [ $? -ne 0 ]; then
+        log "ERROR" "Helm deployment failed"
+        exit 1
+    fi
+    log "INFO" "Kubernetes/Helm deployment completed successfully"
+}
+
 # Script execution
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     # Validate root/sudo access based on platform
@@ -236,6 +248,19 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
                 ;;
         esac
     done
+    
+    # New: Prompt the user to select the deployment method if not set via command-line/environment
+    if [ -z "$DEPLOYMENT_METHOD" ]; then
+        echo "Select deployment method:"
+        echo "1) Docker Compose"
+        echo "2) Kubernetes/Helm"
+        read -p "Enter selection (1 or 2): " selection
+        case $selection in
+            1) DEPLOYMENT_METHOD="docker" ;;
+            2) DEPLOYMENT_METHOD="k8s" ;;
+            *) echo "Invalid selection. Exiting."; exit 1 ;;
+        esac
+    fi
     
     # Validate required parameters
     if [[ -z "$ENVIRONMENT" || -z "$PING_IDENTITY_DEVOPS_USER" || -z "$PING_IDENTITY_DEVOPS_KEY" ]]; then

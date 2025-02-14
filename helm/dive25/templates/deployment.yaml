@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "dive25.fullname" . }}
+  labels:
+    app: {{ include "dive25.name" . }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "dive25.name" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "dive25.name" . }}
+    spec:
+      initContainers:
+        - name: permission-fix
+          image: busybox
+          command: ['sh', '-c', 'chmod -R 755 /opt/certificates']
+          volumeMounts:
+            - name: certificates
+              mountPath: /opt/certificates/prod
+        - name: permission-fix-profiles
+          image: busybox
+          command: ['sh', '-c', 'chmod -R 755 /opt/out']
+          volumeMounts:
+            - name: serverprofiles
+              mountPath: /opt/out
+      containers:
+        - name: dive25
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.service.port }}
+          volumeMounts:
+            - name: certificates
+              mountPath: /opt/certificates/prod
+            - name: pingconfig
+              mountPath: /opt/scripts
+            - name: serverprofiles
+              mountPath: /opt/out
+          lifecycle:
+            postStart:
+              exec:
+                command: ["/bin/sh", "-c", "if [ -d /certificates ]; then cp -r /certificates/* /opt/certificates/prod/; fi"]
+          env:
+            - name: SERVER_PROFILE_URL
+              value: {{ .Values.serverProfileUrl | quote }}
+            - name: PING_IDENTITY_USER
+              value: {{ .Values.pingIdentity.user | quote }}
+            - name: PING_IDENTITY_KEY
+              value: {{ .Values.pingIdentity.key | quote }}
+            - name: PING_IDENTITY_PASSWORD
+              value: {{ .Values.pingIdentity.password | quote }}
+            - name: PA_ADMIN_PASSWORD_INITIAL
+              value: {{ .Values.pingIdentity.adminPasswordInitial | quote }}
+      volumes:
+        - name: certificates
+          persistentVolumeClaim:
+            claimName: {{ .Values.certificatesPVC }}
+        - name: pingconfig
+          configMap:
+            name: {{ include "dive25.fullname" . }}-pingconfig
+        - name: serverprofiles
+          persistentVolumeClaim:
+            claimName: {{ .Values.serverProfilesPVC }} 

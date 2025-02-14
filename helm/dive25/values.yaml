@@ -1,0 +1,21 @@
+replicaCount: 1
+
+image:
+  repository: "your-docker-registry/dive25"
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+service:
+  port: 8080
+
+serverProfileUrl: "http://serverprofile.example.com"
+
+pingIdentity:
+  user: "ping-user"
+  key: "ping-key"
+
+certificatesPVC: "dive25-certificates"
+
+ingress:
+  host: "dive25.example.com"
+  tlsSecretName: "dive25-tls" 
