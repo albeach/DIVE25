@@ -10,7 +10,7 @@ import {
     HealthStatus,
     ApiResponse
 } from '../types';
-import { asAuthError } from '../utils/errorUtils';
+import { asAuthError } from '../middleware/errorHandler';
 import { config } from '../config/config';
 
 /**

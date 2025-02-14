@@ -244,7 +244,7 @@ class App {
             process.on('SIGTERM', () => {
                 this.logger.info('SIGTERM received, shutting down gracefully');
                 server.close(async () => {
-                    await this.db.disconnect();
+                    await this.db.connect();
                     this.logger.info('Server closed');
                     process.exit(0);
                 });

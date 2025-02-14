@@ -17,8 +17,8 @@ import {
     ValidationResult,
     UserAttributes
 } from '../types';
-import { asAuthError } from '../utils/errorUtils';
 import { DocumentContent } from '../models/Document';
+import { asAuthError } from '../middleware/errorHandler';
 
 const id = new ObjectId();
 
@@ -147,7 +147,7 @@ export class DocumentController {
             
             // Filter documents based on user's security attributes
             const accessibleDocuments = await Promise.all(
-                documents.documents.map(async (doc: NATODocument) => {
+                documents.data.map(async (doc: NATODocument) => {
                     const accessResult = await this.opa.evaluateAccess(
                         req.userAttributes,
                         {
@@ -330,104 +330,106 @@ export class DocumentController {
             });
         }
     }
-    // Add to src/controllers/DocumentController.ts
 
-public async deleteDocument(id: string, userAttributes: UserAttributes): Promise<void> {
-  try {
-      const document = await this.db.getDocument(id);
-      if (!document) {
-          throw this.createError('Document not found', 404, 'DOC002');
-      }
+    public async deleteDocument(id: string, userAttributes: UserAttributes): Promise<boolean> {
+        try {
+            const document = await this.db.getDocument(id);
+            if (!document) {
+                return false;
+            }
 
-      // Check delete permissions using OPA
-      const deleteResult = await this.opa.evaluateUpdateAccess(
-          userAttributes,
-          document
-      );
+            // Check delete permissions using OPA
+            const deleteResult = await this.opa.evaluateUpdateAccess(
+                userAttributes,
+                document
+            );
 
-      if (!deleteResult.allow) {
-          throw this.createError(
-              'Insufficient permissions to delete document',
-              403,
-              'DOC005',
-              { reason: deleteResult.reason }
-          );
-      }
+            if (!deleteResult.allow) {
+                throw this.createError(
+                    'Insufficient permissions to delete document',
+                    403,
+                    'DOC005',
+                    { reason: deleteResult.reason }
+                );
+            }
 
-      await this.db.deleteDocument(id);
+            const deleted = await this.db.deleteDocument(id);
 
-      // Record metrics
-      this.metrics.recordOperationMetrics('document_delete', {
-          documentId: id
-      });
+            // Record metrics
+            this.metrics.recordOperationMetrics('document_delete', {
+                documentId: id,
+                success: deleted
+            });
 
-  } catch (error) {
-      this.logger.error('Error deleting document:', error as Error);
-      throw this.createStorageError((error as Error).message, 500, 'DOC008', { originalError: error });
-  }
-}
+            return deleted;
 
-public async getDocumentMetadata(id: string, userAttributes: UserAttributes): Promise<DocumentMetadata> {
-  try {
-      const document = await this.db.getDocument(id);
-      if (!document) {
-          throw this.createError('Document not found', 404, 'DOC002');
-      }
+        } catch (error) {
+            this.logger.error('Error deleting document:', error as Error);
+            throw this.createStorageError((error as Error).message, 500, 'DOC008', { originalError: error });
+        }
+    }
 
-      const accessResult = await this.opa.evaluateAccess(
-          userAttributes,
-          {
-              clearance: document.clearance,
-              releasableTo: document.releasableTo,
-              coiTags: document.coiTags,
-              lacvCode: document.lacvCode
-          }
-      );
+    public async getDocumentMetadata(id: string, userAttributes: UserAttributes): Promise<DocumentMetadata> {
+        try {
+            const document = await this.db.getDocument(id);
+            if (!document) {
+                throw this.createError('Document not found', 404, 'DOC002');
+            }
 
-      if (!accessResult.allow) {
-          throw this.createError('Access denied', 403, 'DOC003');
-      }
+            const accessResult = await this.opa.evaluateAccess(
+                userAttributes,
+                {
+                    clearance: document.clearance,
+                    releasableTo: document.releasableTo,
+                    coiTags: document.coiTags,
+                    lacvCode: document.lacvCode
+                }
+            );
 
-      return {
-          ...document.metadata,
-          clearance: document.clearance
-      } as DocumentMetadata;
+            if (!accessResult.allow) {
+                throw this.createError('Access denied', 403, 'DOC003');
+            }
 
-  } catch (error) {
-      this.logger.error('Error retrieving document metadata:', error);
-      throw this.createStorageError((error as Error).message, 500, 'DOC008', { originalError: error });
-  }
-}
+            return {
+                ...document.metadata,
+                clearance: document.clearance
+            } as DocumentMetadata;
 
-public async getDocumentVersions(id: string, userAttributes: UserAttributes): Promise<DocumentMetadata[]> {
-  try {
-      const document = await this.db.getDocument(id);
-      if (!document) {
-          throw this.createError('Document not found', 404, 'DOC002');
-      }
+        } catch (error) {
+            this.logger.error('Error retrieving document metadata:', error);
+            throw this.createStorageError((error as Error).message, 500, 'DOC008', { originalError: error });
+        }
+    }
 
-      const accessResult = await this.opa.evaluateAccess(
-          userAttributes,
-          {
-              clearance: document.clearance,
-              releasableTo: document.releasableTo,
-              coiTags: document.coiTags,
-              lacvCode: document.lacvCode
-          }
-      );
+    public async getDocumentVersions(id: string, userAttributes: UserAttributes): Promise<DocumentMetadata[]> {
+        try {
+            const document = await this.db.getDocument(id);
+            if (!document) {
+                throw this.createError('Document not found', 404, 'DOC002');
+            }
 
-      if (!accessResult.allow) {
-          throw this.createError('Access denied', 403, 'DOC003');
-      }
+            const accessResult = await this.opa.evaluateAccess(
+                userAttributes,
+                {
+                    clearance: document.clearance,
+                    releasableTo: document.releasableTo,
+                    coiTags: document.coiTags,
+                    lacvCode: document.lacvCode
+                }
+            );
 
-      const versions = await this.db.getDocumentVersions(id);
-      return versions;
+            if (!accessResult.allow) {
+                throw this.createError('Access denied', 403, 'DOC003');
+            }
 
-  } catch (error) {
-      this.logger.error('Error retrieving document versions:', error);
-      throw this.createStorageError((error as Error).message, 500, 'DOC008', { originalError: error });
-  }
-}
+            const versions = await this.db.getDocumentVersions(id);
+            return versions;
+
+        } catch (error) {
+            this.logger.error('Error retrieving document versions:', error);
+            throw this.createStorageError((error as Error).message, 500, 'DOC008', { originalError: error });
+        }
+    }
 
     // Private helper methods
 
@@ -485,7 +487,7 @@ public async getDocumentVersions(id: string, userAttributes: UserAttributes): Pr
             throw this.createError('Invalid releasableTo format', 400, 'DOC008');
         }
         validatedData.releasableTo = data.releasableTo.filter(
-            (marker: unknown) => this.isValidReleasabilityMarker(marker)
+            (marker: string) => this.isValidReleasabilityMarker(marker)
         );
 
         if (data.coiTags !== undefined) {
@@ -493,7 +495,7 @@ public async getDocumentVersions(id: string, userAttributes: UserAttributes): Pr
                 throw this.createError('Invalid coiTags format', 400, 'DOC009');
             }
             validatedData.coiTags = data.coiTags.filter(
-                (tag: unknown) => this.isValidCoiTag(tag)
+                (tag: string) => this.isValidCoiTag(tag)
             );
         }
 
@@ -546,17 +548,17 @@ public async getDocumentVersions(id: string, userAttributes: UserAttributes): Pr
         return typeof clearance === 'string' && validClearances.includes(clearance as ClearanceLevel);
     }
 
-    private isValidReleasabilityMarker(marker: unknown): boolean {
+    private isValidReleasabilityMarker(marker: string): boolean {
         const validMarkers = ['NATO', 'EU', 'FVEY', 'PARTNERX'];
         return typeof marker === 'string' && validMarkers.includes(marker);
     }
 
-    private isValidCoiTag(tag: unknown): boolean {
+    private isValidCoiTag(tag: string): boolean {
       const validTags = ['OpAlpha', 'OpBravo', 'OpGamma', 'MissionX', 'MissionZ'];
       return typeof tag === 'string' && validTags.includes(tag);
   }
 
-  private isValidLacvCode(code: unknown): boolean {
+  private isValidLacvCode(code: string): boolean {
       const validCodes = ['LACV001', 'LACV002', 'LACV003', 'LACV004'];
       return typeof code === 'string' && validCodes.includes(code);
   }

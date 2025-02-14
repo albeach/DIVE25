@@ -5,7 +5,7 @@ const id = new ObjectId();
 
 // Fix SearchResult type
 export interface SearchResult<T> {
-    documents: T[];
+    data: T[];
     total: number;
     page: number;
     limit: number;
@@ -37,6 +37,20 @@ export type LacvCode =
 export interface MongoDocument {
     _id?: ObjectId;
     [key: string]: any;
+}
+
+export interface DocumentSearchParams {
+    query: DocumentSearchQuery;
+    options: DocumentSearchOptions;
+}
+
+export interface DocumentOperationResult<T> {
+    success: boolean;
+    data: T;
+    metadata: {
+        timestamp: Date;
+        requestId: string;
+    };
 }
 
 // User-related interfaces
@@ -83,7 +97,7 @@ export interface DocumentContent {
 }
 
 export interface NATODocument {
-    _id?: ObjectId;
+    _id?: ObjectId | string;
     title: string;
     clearance: ClearanceLevel;
     releasableTo: ReleasabilityMarker[];
@@ -91,6 +105,7 @@ export interface NATODocument {
     lacvCode?: LacvCode;
     metadata: DocumentMetadata;
     content: DocumentContent;
+    deleted?: boolean;
 }
 
 export interface DocumentResponse<T> {
@@ -100,12 +115,6 @@ export interface DocumentResponse<T> {
         timestamp: Date;
         requestId: string;
     };
-}
-
-export interface SearchResult<T> {
-    data: T;
-    documents: T[];
-    total: number;
 }
 
 export interface DocumentSearchOptions {
@@ -126,6 +135,7 @@ export interface DocumentVersionInfo {
 
 // Search and pagination interfaces
 export interface DocumentSearchQuery {
+    userAttributes?: UserAttributes;
     clearance?: ClearanceLevel;
     releasableTo?: ReleasabilityMarker[];
     coiTags?: CoiTag[];
@@ -142,7 +152,7 @@ export interface PaginationOptions {
     page: number;
     limit: number;
     sort?: {
-        field: keyof NATODocument;
+        field: keyof NATODocument | "metadata.createdAt";
         order: 'asc' | 'desc';
     };
 }
@@ -159,7 +169,7 @@ export interface PaginatedResponse<T> {
 
 // Error handling interfaces
 export interface AuthError extends Error {
-    statusCode: number;
+    statusCode?: number;
     code?: string;
     details?: any;
 }

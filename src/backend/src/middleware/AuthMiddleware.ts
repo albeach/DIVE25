@@ -11,7 +11,7 @@ import {
     CoiTag,
     LacvCode 
 } from '../types';
-import { asAuthError } from '../utils/errorUtils';
+import { asAuthError } from './errorHandler';
 import { config } from '../config/config';
 
 export class AuthMiddleware {

@@ -13,7 +13,8 @@ import {
 } from '../models/Document';
 import { AuthenticatedRequest, AuthError } from '../types';
 import { LoggerService } from '../services/LoggerService';
-import { asAuthError } from '../utils/errorUtils';
+import { errorHandler } from './errorHandler';
+import { ValidationError } from '../utils/errors';
 
 export class DocumentValidationMiddleware {
    private static instance: DocumentValidationMiddleware;
@@ -103,7 +104,7 @@ export class DocumentValidationMiddleware {
 
            next();
        } catch (error) {
-           const validationError = asAuthError(error);
+           const validationError = errorHandler(error as Error, req, res, next);
 
            this.logger.error('Document validation error', {
                error: validationError,
@@ -111,11 +112,11 @@ export class DocumentValidationMiddleware {
                document: req.body
            });
 
-           res.status(validationError.statusCode || 400).json({
-               error: validationError.message || 'Document validation failed',
-               code: validationError.code || 'VAL000',
-               details: validationError.details
-           });
+      //     res.status(validationError.status || 400).json({
+      //        error: validationError.message || 'Document validation failed',
+      //        code: validationError.code || 'VAL000',
+      //        details: validationError.details
+      //    });
        }
    };
 

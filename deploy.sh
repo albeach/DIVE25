@@ -87,9 +87,42 @@ check_required_env_vars() {
   fi
 }
 
+# Function to build TypeScript
+build_typescript() {
+    log "INFO" "Building TypeScript projects..."
+    
+    # Build backend
+    cd src/backend
+    npm install
+    npm run build
+    if [ $? -ne 0 ]; then
+        log "ERROR" "Backend TypeScript build failed"
+        exit 1
+    fi
+    cd ../..
+    
+    log "INFO" "TypeScript build completed successfully"
+}
+
+# New function to configure Ping Identity settings
+configure_ping_identity() {
+    log "INFO" "Applying Ping Identity configurations..."
+    if [ -f "dive25-pingconfigs.sh" ]; then
+        bash dive25-pingconfigs.sh
+        if [ $? -ne 0 ]; then
+            log "ERROR" "Ping Identity configuration script failed"
+            exit 1
+        fi
+        log "INFO" "Ping Identity configurations applied successfully"
+    else
+        log "WARN" "Ping Identity configuration script not found, skipping..."
+    fi
+}
+
 # Function to deploy development environment
 deploy_development() {
     log "INFO" "Starting development environment deployment..."
+    build_typescript
     
     # Setup development certificates
     setup_development_certificates
@@ -100,6 +133,9 @@ deploy_development() {
     # Deploy server profiles
     deploy_server_profiles "dev"
     
+    # Apply Ping Identity configurations
+    configure_ping_identity
+    
     # Setup monitoring
     setup_monitoring "dev"
     
@@ -109,6 +145,7 @@ deploy_development() {
 # Function to deploy production environment
 deploy_production() {
     log "INFO" "Starting production environment deployment..."
+    build_typescript
     
     # Setup Let's Encrypt certificates
     setup_production_certificates
@@ -118,6 +155,9 @@ deploy_production() {
     
     # Deploy server profiles
     deploy_server_profiles "prod"
+    
+    # Apply Ping Identity configurations
+    configure_ping_identity
     
     # Setup monitoring with alerting
     setup_monitoring "prod"
@@ -203,7 +243,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         echo "Usage: $0 --env <dev|prod> --ping-user <username> --ping-key <key>"
         exit 1
     fi
-    
+
     # Execute main function
     main "$ENVIRONMENT"
 fi

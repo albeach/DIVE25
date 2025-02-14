@@ -252,7 +252,8 @@ export class MetricsService {
 
     public async getActiveConnections(): Promise<number> {
         try {
-            return await this.metrics.activeConnections.get();
+            const value = await this.metrics.activeConnections.get();
+            return value.values.reduce((sum, v) => sum + v.value, 0);
         } catch (error) {
             this.logger.error('Error getting active connections:', error);
             return 0;
@@ -264,7 +265,7 @@ export class MetricsService {
             const histogram = this.metrics.httpRequestDuration;
             const values = await histogram.get();
             const count = values.values.reduce((sum, v) => sum + v.value, 0);
-            const sum = values.values.reduce((sum, v) => sum + (v.value * v.exemplar), 0);
+            const sum = values.values.reduce((sum, v) => sum + (v.value * v.value), 0);
             return count > 0 ? sum / count : 0;
         } catch (error) {
             this.logger.error('Error calculating average response time:', error);

@@ -2,7 +2,8 @@
 import axios from 'axios';
 import { config } from '../config/config';
 import { LoggerService } from './LoggerService';
-import { asAuthError } from '../utils/errorUtils';
+import { AuthError } from '../types';
+import { asAuthError } from '../middleware/errorHandler';
 
 export interface OAuthClientConfig {
    clientId: string;

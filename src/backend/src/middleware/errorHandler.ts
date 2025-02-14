@@ -5,6 +5,19 @@ import { AuthError } from '../types';
 import { LoggerService } from '../services/LoggerService';
 import { MetricsService } from '../services/MetricsService';
 
+/**
+ * Converts an unknown error into a structured `AuthError` object.
+ */
+export function asAuthError(error: unknown): AuthError {
+    const typedError = error instanceof Error ? error : new Error('Unknown error');
+    return {
+        ...typedError,
+        statusCode: (error as AuthError)?.statusCode || 500,
+        code: (error as AuthError)?.code || 'INTERNAL_ERROR',
+        details: (error as AuthError)?.details || {},
+    } as AuthError;
+}
+
 export const errorHandler = (
     error: Error,
     req: Request,
@@ -75,8 +88,6 @@ export const validationErrorHandler = (
     }
     next(error);
 };
-
-export const authError = asAuthError(error);
 
 export const securityErrorHandler = (
     error: Error,

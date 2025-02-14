@@ -4,7 +4,7 @@ import * as prometheus from 'prom-client';
 import { Redis } from 'ioredis';
 import { config } from '../config/config';
 import { LoggerService } from './LoggerService';
-import { asAuthError } from '../utils/errorUtils';
+import { asAuthError } from '../middleware/errorHandler';
 import { HealthStatus, UserAttributes } from '../types';
 
 export interface PartnerHealth {

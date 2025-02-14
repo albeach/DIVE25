@@ -63,6 +63,7 @@ deploy_docker_containers() {
     cat << EOL > "${SCRIPT_DIR}/.env"
 PING_IDENTITY_DEVOPS_USER=${PING_IDENTITY_DEVOPS_USER}
 PING_IDENTITY_DEVOPS_KEY=${PING_IDENTITY_DEVOPS_KEY}
+PA_ADMIN_PASSWORD_INITIAL=
 COMPOSE_PROJECT_NAME=dive25
 EOL
     chmod 600 "${SCRIPT_DIR}/.env"
@@ -86,6 +87,39 @@ EOL
         docker-compose -f "${SCRIPT_DIR}/docker-compose.yml" logs
         exit 1
     fi
+
+# Add WordPress setup to deploy_docker_containers()
+
+setup_wordpress() {
+    local environment=$1
+    
+    log "INFO" "Setting up WordPress environment"
+    
+    # Create required directories
+    mkdir -p "${SCRIPT_DIR}/wordpress/plugins/dive25-integration"
+    mkdir -p "${SCRIPT_DIR}/wordpress/themes/dive25"
+    
+    # Copy our custom plugin
+    cp -r "${SCRIPT_DIR}/src/wordpress/plugins/dive25-integration/"* \
+        "${SCRIPT_DIR}/wordpress/plugins/dive25-integration/"
+    
+    # Set proper permissions
+    chmod -R 755 "${SCRIPT_DIR}/wordpress"
+    
+    # Generate WordPress salts securely
+    local wp_config="${SCRIPT_DIR}/wordpress/wp-config.php"
+    if [[ ! -f "$wp_config" ]]; then
+        curl -s https://api.wordpress.org/secret-key/1.1/salt/ > wp-salts.txt
+        # We'll use these salts in our WordPress configuration
+    fi
+}
+
+# Add this to the main deployment flow
+if [[ "$environment" == "prod" ]]; then
+    setup_wordpress "prod"
+else
+    setup_wordpress "dev"
+fi
 
     # Validate requirements and verify deployment
     validate_container_requirements "$environment"
