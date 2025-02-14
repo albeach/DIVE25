@@ -74,15 +74,13 @@ services:
     image: grafana/grafana:latest
     volumes:
       - ./monitoring/grafana:/var/lib/grafana
-      - ./monitoring/grafana/grafana.ini:/etc/grafana/grafana.ini:ro
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
-      - GF_PATHS_CONFIG=/etc/grafana/grafana.ini
     ports:
       - "3050:4000"
     networks:
       - dive25-net
-    command: ["/bin/sh", "-c", "chmod 644 /etc/grafana/grafana.ini && /run.sh"]
+    command: ["/run.sh"]
 
   backend:
     build: ./src/backend

@@ -73,6 +73,13 @@ check_prerequisites() {
 
 # New function to check required environment variables
 check_required_env_vars() {
+    # If a .env file exists in the root directory, source it to load environment variables
+    if [ -f ".env" ]; then
+        log "INFO" "Loading environment variables from .env file"
+        set -a
+        . .env
+        set +a
+    fi
     local required_vars=("WP_DB_PASSWORD" "MYSQL_ROOT_PASSWORD" "MONGO_ROOT_USER" "MONGO_ROOT_PASSWORD" "GRAFANA_ADMIN_PASSWORD")
     for var in "${required_vars[@]}"; do
         if [ -z "${!var}" ]; then
@@ -149,9 +156,23 @@ deploy_development() {
 deploy_production() {
     log "INFO" "Starting production environment deployment..."
     
-    # Setup Let's Encrypt certificates
-    setup_production_certificates
-    
+    # Prompt to optionally skip Let's Encrypt certificate generation
+    read -p "Do you want to skip Let's Encrypt certificate generation? (y/N): " skip_cert_input
+    if [[ "$skip_cert_input" =~ ^[Yy]$ ]]; then
+         log "INFO" "Skipping Let's Encrypt certificate generation as per user request."
+         export SKIP_LETSENCRYPT=true
+    else
+         log "INFO" "Generating Let's Encrypt certificates..."
+         setup_production_certificates || { log "ERROR" "Let's Encrypt certificate generation failed."; exit 1; }
+    fi
+
+    # If skipping, warn if expected certificate file is missing
+    if [ "$SKIP_LETSENCRYPT" = true ]; then
+         if [ ! -f "./certificates/prod/cert.pem" ]; then
+              log "WARN" "Expected certificate file './certificates/prod/cert.pem' not found. Ensure your deployment does not depend on these certificates."
+         fi
+    fi
+
     # Deploy Docker containers
     deploy_docker_containers "prod"
     

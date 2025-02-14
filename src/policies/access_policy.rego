@@ -125,7 +125,8 @@ user_has_mandatory_attrs if {
 
 missing_attrs = [
   attr |
-  required_user_attrs[_] == attr
+  some i
+  required_user_attrs[i] == attr;
   attr_missing(attr)
 ]
 
@@ -142,7 +143,7 @@ attr_missing(attr) if {
 # 5. Clearance Verification
 ###############################################################################
 user_clearance_ok if {
-  clearance_order[input.user.clearance] >= clearance_order[input.resource.clearance]
+  clearance[input.user.clearance] >= clearance[input.resource.clearance]
 }
 
 ###############################################################################

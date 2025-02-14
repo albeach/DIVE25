@@ -3,6 +3,9 @@ package dive25.partner_policies
 import data.access_policy.clearance
 import data.access_policy.nato_nations
 import data.access_policy.fvey_nations
+import data.access_policy.eu_nations
+
+basic_access_allowed = true
 
 # Partner-specific policy definitions
 partner_policies = {
