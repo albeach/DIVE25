@@ -163,7 +163,7 @@ user_has_access_label(label) if {
   eu_nations[input.user.countryOfAffiliation]
 }
 
-user_has_access_label[label] if {
+user_has_access_label(label) if {
   label == "FVEY"
   fvey_nations[input.user.countryOfAffiliation]
 }
