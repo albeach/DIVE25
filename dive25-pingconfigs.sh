@@ -60,7 +60,7 @@ security:
 
 administrators:
   - username: "mike"
-    password: "mike123"
+    password: "mike2222"
   - username: "aubrey"
     password: "aubrey456"
 EOF
@@ -98,7 +98,7 @@ initialData:
 
 administrators:
   - username: "mike"
-    password: "mike123"
+    password: "mike2222"
   - username: "aubrey"
     password: "aubrey456"
 EOF
@@ -140,7 +140,7 @@ accessControl:
 
 administrators:
   - username: "mike"
-    password: "mike123"
+    password: "mike2222"
   - username: "aubrey"
     password: "aubrey456"
 EOF
@@ -179,9 +179,9 @@ cat <<'EOF' > layered-profiles/common/config-files/controlled-enumerations.json
   "clearance": {
     "UNCLASSIFIED": 0,
     "RESTRICTED": 1,
-    "NATO CONFIDENTIAL": 2,
-    "NATO SECRET": 3,
-    "COSMIC TOP SECRET": 4
+    "CONFIDENTIAL": 2,
+    "SECRET": 3,
+    "TOP SECRET": 4
   },
   "nato_nations": [
     "ALB", "BGR", "HRV", "CZE", "DNK", "EST", "FIN", "GRC", "HUN",
@@ -208,58 +208,96 @@ EOF
 cat <<'EOF' > layered-profiles/common/config-files/initial-users.ldif
 # Pre-populated user entries for the local IdP in PingDirectory
 
-dn: uid=texas,ou=users,dc=dive25,dc=com
+dn: uid=helsinki,ou=users,dc=dive25,dc=com
 objectClass: inetOrgPerson
-uid: texas
-cn: Texas
+uid: helsinki
+cn: Helsinki
 sn: User
 clearance: UNCLASSIFIED
-countryOfAffiliation: USA
-coiTags: NATO
+countryOfAffiliation: FIN
+coiTags: NATO, OpAlpha
 
-dn: uid=quebec,ou=users,dc=dive25,dc=com
+dn: uid=berlin,ou=users,dc=dive25,dc=com
 objectClass: inetOrgPerson
-uid: quebec
-cn: Quebec
+uid: berlin
+cn: Berlin
 sn: User
-clearance: NATO SECRET
-countryOfAffiliation: CAN
+clearance: UNCLASSIFIED
+countryOfAffiliation: DEU
+coiTags: OpBravo
+
+dn: uid=liverpool,ou=users,dc=dive25,dc=com
+objectClass: inetOrgPerson
+uid: liverpool
+cn: Liverpool
+sn: User
+clearance: UNCLASSIFIED
+countryOfAffiliation: GBR
+coiTags: NATO, OpAlpha
+
+dn: uid=turku,ou=users,dc=dive25,dc=com
+objectClass: inetOrgPerson
+uid: turku
+cn: Turku
+sn: User
+clearance: SECRET
+countryOfAffiliation: FIN
+coiTags: OpBravo
+
+dn: uid=athens,ou=users,dc=dive25,dc=com
+objectClass: inetOrgPerson
+uid: athens
+cn: Athens
+sn: User
+clearance: SECRET
+countryOfAffiliation: GEC
 coiTags: OpAlpha
 
-dn: uid=ontario,ou=users,dc=dive25,dc=com
+dn: uid=bristol,ou=users,dc=dive25,dc=com
 objectClass: inetOrgPerson
-uid: ontario
-cn: Ontario
+uid: bristol
+cn: Bristol
 sn: User
-clearance: UNCLASSIFIED
-countryOfAffiliation: CAN
+clearance: RESTRICTED
+countryOfAffiliation: GBR
 coiTags: FVEY
 
-dn: uid=zeeland,ou=users,dc=dive25,dc=com
+dn: uid=dresden,ou=users,dc=dive25,dc=com
 objectClass: inetOrgPerson
-uid: zeeland
-cn: Zeeland
+uid: dresden
+cn: Dresden
 sn: User
-clearance: UNCLASSIFIED
-countryOfAffiliation: NZL
-coiTags: FVEY
+clearance: RESTRICTED
+countryOfAffiliation: DEU
+coiTags: NATO, OpAlpha
 
-dn: uid=iowa,ou=users,dc=dive25,dc=com
+dn: uid=hague,ou=users,dc=dive25,dc=com
 objectClass: inetOrgPerson
-uid: iowa
-cn: Iowa
+uid: hague
+cn: Hague
 sn: User
-clearance: NATO SECRET
-countryOfAffiliation: USA
-
-dn: uid=holland,ou=users,dc=dive25,dc=com
-objectClass: inetOrgPerson
-uid: holland
-cn: Holland
-sn: User
-clearance: NATO SECRET
+clearance: RESTRICTED
 countryOfAffiliation: NLD
-coiTags: NATO
+coiTags: OpBravo
+
+dn: uid=utrecht,ou=users,dc=dive25,dc=com
+objectClass: inetOrgPerson
+uid: utrecht
+cn: Utrecht
+sn: User
+clearance: CONFIDENTIAL
+countryOfAffiliation: NLD
+coiTags: OpBravo
+
+dn: uid=paris,ou=users,dc=dive25,dc=com
+objectClass: inetOrgPerson
+uid: paris
+cn: Paris
+sn: User
+clearance: CONFIDENTIAL
+countryOfAffiliation: FRA
+coiTags: NATO, OpAlpha
+
 EOF
 
 echo "Creating development configuration files..."
@@ -386,7 +424,7 @@ accessControl:
 
 administrators:
   - username: "mike"
-    password: "mike123"
+    password: "mike2222"
   - username: "aubrey"
     password: "aubrey456"
 EOF
@@ -409,7 +447,7 @@ federation:
     - name: "USD_DIVE25"
       type: "SAML"
       metadataUrl: "https://usd.dive25.com/metadata"
-      host: "98.166.151.97"
+      host: "72.84.104.17"
     - name: "USB_DIVE25"
       type: "SAML"
       metadataUrl: "https://usb.dive25.com/metadata"
@@ -417,7 +455,7 @@ federation:
     - name: "USH_DIVE"
       type: "SAML"
       metadataUrl: "https://ush.dive.com/metadata"
-      host: "10.0.0.5"
+      host: "10.0.10.5"
     - name: "GeoAxis_OIDC"
       type: "OIDC"
       metadataUrl: "https://oidc-tst.geoaxis.gs.mil/.well-known/openid-configuration"
@@ -551,7 +589,7 @@ accessControl:
 
 administrators:
   - username: "mike"
-    password: "mike123"
+    password: "mike2222"
   - username: "aubrey"
     password: "aubrey456"
 EOF
