@@ -45,12 +45,12 @@ deploy_docker_containers() {
     log "INFO" "Deploying Docker containers for ${environment}"
     
     # Stop any existing containers
-    docker-compose -f "${SCRIPT_DIR}/docker/docker-compose.yml" \
+    docker compose -f "${SCRIPT_DIR}/docker/docker-compose.yml" \
         -f "${SCRIPT_DIR}/docker/docker-compose.${environment}.yml" \
         down
     
     # Start containers
-    docker-compose -f "${SCRIPT_DIR}/docker/docker-compose.yml" \
+    docker compose -f "${SCRIPT_DIR}/docker/docker-compose.yml" \
         -f "${SCRIPT_DIR}/docker/docker-compose.${environment}.yml" \
         up -d
     

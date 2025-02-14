@@ -71,20 +71,20 @@ EOL
     # Deploy containers
     if [[ "$(uname)" == "Darwin" ]]; then
         # MacOS: run without sudo
-        docker-compose -f "${SCRIPT_DIR}/docker-compose.yml" down --remove-orphans
-        docker-compose -f "${SCRIPT_DIR}/docker-compose.yml" pull
-        docker-compose -f "${SCRIPT_DIR}/docker-compose.yml" up -d
+        docker compose -f "${SCRIPT_DIR}/docker-compose.yml" down --remove-orphans
+        docker compose -f "${SCRIPT_DIR}/docker-compose.yml" pull
+        docker compose -f "${SCRIPT_DIR}/docker-compose.yml" up -d
     else
         # Linux: use sudo
-        sudo docker-compose -f "${SCRIPT_DIR}/docker-compose.yml" down --remove-orphans
-        sudo docker-compose -f "${SCRIPT_DIR}/docker-compose.yml" pull
-        sudo docker-compose -f "${SCRIPT_DIR}/docker-compose.yml" up -d
+        sudo docker compose -f "${SCRIPT_DIR}/docker-compose.yml" down --remove-orphans
+        sudo docker compose -f "${SCRIPT_DIR}/docker-compose.yml" pull
+        sudo docker compose -f "${SCRIPT_DIR}/docker-compose.yml" up -d
     fi
 
     # Check if deployment was successful
     if [ $? -ne 0 ]; then
         log "ERROR" "Failed to deploy containers. Checking Docker logs..."
-        docker-compose -f "${SCRIPT_DIR}/docker-compose.yml" logs
+        docker compose -f "${SCRIPT_DIR}/docker-compose.yml" logs
         exit 1
     fi
 

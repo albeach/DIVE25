@@ -43,7 +43,7 @@ setup_development_monitoring() {
     log "INFO" "Configuring development monitoring stack"
     
     # Deploy basic monitoring stack without alerting
-    docker-compose -f "${SCRIPT_DIR}/docker/monitoring/docker-compose.yml" up -d
+    docker compose -f "${SCRIPT_DIR}/docker/monitoring/docker-compose.yml" up -d
 }
 
 configure_federation_monitoring() {
