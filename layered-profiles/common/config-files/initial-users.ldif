@@ -1,0 +1,92 @@
+# Pre-populated user entries for the local IdP in PingDirectory
+
+dn: uid=helsinki,ou=users,dc=dive25,dc=com
+objectClass: inetOrgPerson
+uid: helsinki
+cn: Helsinki
+sn: User
+clearance: UNCLASSIFIED
+countryOfAffiliation: FIN
+coiTags: NATO, OpAlpha
+
+dn: uid=berlin,ou=users,dc=dive25,dc=com
+objectClass: inetOrgPerson
+uid: berlin
+cn: Berlin
+sn: User
+clearance: UNCLASSIFIED
+countryOfAffiliation: DEU
+coiTags: OpBravo
+
+dn: uid=liverpool,ou=users,dc=dive25,dc=com
+objectClass: inetOrgPerson
+uid: liverpool
+cn: Liverpool
+sn: User
+clearance: UNCLASSIFIED
+countryOfAffiliation: GBR
+coiTags: NATO, OpAlpha
+
+dn: uid=turku,ou=users,dc=dive25,dc=com
+objectClass: inetOrgPerson
+uid: turku
+cn: Turku
+sn: User
+clearance: SECRET
+countryOfAffiliation: FIN
+coiTags: OpBravo
+
+dn: uid=athens,ou=users,dc=dive25,dc=com
+objectClass: inetOrgPerson
+uid: athens
+cn: Athens
+sn: User
+clearance: SECRET
+countryOfAffiliation: GEC
+coiTags: OpAlpha
+
+dn: uid=bristol,ou=users,dc=dive25,dc=com
+objectClass: inetOrgPerson
+uid: bristol
+cn: Bristol
+sn: User
+clearance: RESTRICTED
+countryOfAffiliation: GBR
+coiTags: FVEY
+
+dn: uid=dresden,ou=users,dc=dive25,dc=com
+objectClass: inetOrgPerson
+uid: dresden
+cn: Dresden
+sn: User
+clearance: RESTRICTED
+countryOfAffiliation: DEU
+coiTags: NATO, OpAlpha
+
+dn: uid=hague,ou=users,dc=dive25,dc=com
+objectClass: inetOrgPerson
+uid: hague
+cn: Hague
+sn: User
+clearance: RESTRICTED
+countryOfAffiliation: NLD
+coiTags: OpBravo
+
+dn: uid=utrecht,ou=users,dc=dive25,dc=com
+objectClass: inetOrgPerson
+uid: utrecht
+cn: Utrecht
+sn: User
+clearance: CONFIDENTIAL
+countryOfAffiliation: NLD
+coiTags: OpBravo
+
+dn: uid=paris,ou=users,dc=dive25,dc=com
+objectClass: inetOrgPerson
+uid: paris
+cn: Paris
+sn: User
+clearance: CONFIDENTIAL
+countryOfAffiliation: FRA
+coiTags: NATO, OpAlpha
+

@@ -1,0 +1,24 @@
+{
+  "mappings": [
+    {
+      "external": "eduPersonPrincipalName",
+      "internal": "uniqueIdentifier"
+    },
+    {
+      "external": "securityClearance",
+      "internal": "clearance"
+    },
+    {
+      "external": "country",
+      "internal": "countryOfAffiliation"
+    },
+    {
+      "external": "communitiesOfInterest",
+      "internal": "coiTags"
+    },
+    {
+      "external": "lacv",
+      "internal": "lacvCode"
+    }
+  ]
+}

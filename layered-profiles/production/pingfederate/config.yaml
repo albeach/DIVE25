@@ -1,0 +1,31 @@
+# Production-specific overrides for PingFederate (v12.2.0-latest)
+server:
+  host: "pingfederate.dive25.com"
+  port: 9031
+
+idp:
+  localIdP:
+    entityId: "urn:dive25:localidp:prod"
+
+federation:
+  trustedIdPs:
+    - name: "USD_DIVE25"
+      type: "SAML"
+      metadataUrl: "https://usd.dive25.com/metadata"
+      host: "72.84.104.17"
+    - name: "USB_DIVE25"
+      type: "SAML"
+      metadataUrl: "https://usb.dive25.com/metadata"
+      host: "70.160.48.40"
+    - name: "USH_DIVE"
+      type: "SAML"
+      metadataUrl: "https://ush.dive.com/metadata"
+      host: "10.0.10.5"
+    - name: "GeoAxis_OIDC"
+      type: "OIDC"
+      metadataUrl: "https://oidc-tst.geoaxis.gs.mil/.well-known/openid-configuration"
+
+security:
+  tls:
+    keystorePath: "/opt/pingidentity/keystore/prod-dive25.jks"
+    keystorePassword: "prod_strong_password"

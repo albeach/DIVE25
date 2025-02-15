@@ -116,9 +116,11 @@ build_typescript() {
 configure_ping_identity() {
     log "INFO" "Applying Ping Identity configurations..."
     if [ -f "dive25-pingconfigs.sh" ]; then
-        bash dive25-pingconfigs.sh
-        if [ $? -ne 0 ]; then
-            log "ERROR" "Ping Identity configuration script failed"
+        chmod +x dive25-pingconfigs.sh
+        ./dive25-pingconfigs.sh
+        ret=$?
+        if [ $ret -ne 0 ]; then
+            log "ERROR" "Ping Identity configuration script failed with exit code $ret"
             exit 1
         fi
         log "INFO" "Ping Identity configurations applied successfully"

@@ -1,0 +1,112 @@
+# Production-specific PingAccess configuration (v8.2.0-latest)
+server:
+  host: "proxy.dive25.com"
+  port: 8443
+  bindAddress: "0.0.0.0"
+  dataDirectory: "/opt/pingidentity/data"
+  logsDirectory: "/opt/pingidentity/logs"
+
+sslContext:
+  enabled: true
+  keyStore:
+    path: "/opt/pingidentity/keystore/prod-dive25.jks"
+    password: "prod_strong_password"
+    alias: "pingaccess_cert"
+  trustStore:
+    path: "/opt/pingidentity/keystore/truststore.jks"
+    password: "truststore_password"
+  protocols:
+    - TLSv1.2
+    - TLSv1.3
+  cipherSuites:
+    - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+    - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+
+certificates:
+  - alias: "pingaccess_cert"
+    subject: "CN=proxy.dive25.com, O=DIVE25, C=US"
+    issuer: "CN=DIVE25_CA, O=DIVE25, C=US"
+    validFrom: "2023-01-01T00:00:00Z"
+    validTo: "2025-12-31T23:59:59Z"
+  - alias: "usd_dive25_cert"
+    subject: "CN=usd.dive25.com, O=DIVE25, C=US"
+    issuer: "CN=DIVE25_CA, O=DIVE25, C=US"
+    validFrom: "2023-01-01T00:00:00Z"
+    validTo: "2025-12-31T23:59:59Z"
+  - alias: "usb_dive25_cert"
+    subject: "CN=usb.dive25.com, O=DIVE25, C=US"
+    issuer: "CN=DIVE25_CA, O=DIVE25, C=US"
+    validFrom: "2023-01-01T00:00:00Z"
+    validTo: "2025-12-31T23:59:59Z"
+  - alias: "ush_dive_cert"
+    subject: "CN=ush.dive.com, O=DIVE25, C=US"
+    issuer: "CN=DIVE25_CA, O=DIVE25, C=US"
+    validFrom: "2023-01-01T00:00:00Z"
+    validTo: "2025-12-31T23:59:59Z"
+  - alias: "geoaxis_oidc_cert"
+    subject: "CN=oidc-tst.geoaxis.gs.mil, O=GeoAxis, C=US"
+    issuer: "CN=GeoAxis_CA, O=GeoAxis, C=US"
+    validFrom: "2023-01-01T00:00:00Z"
+    validTo: "2025-12-31T23:59:59Z"
+
+preloadedCertificates:
+  - alias: "partner_cert_1"
+    subject: "CN=Partner1, O=Partner, C=US"
+    issuer: "CN=Partner_CA, O=Partner, C=US"
+    validFrom: "2023-01-01T00:00:00Z"
+    validTo: "2025-12-31T23:59:59Z"
+    filePath: "/opt/pingidentity/keystore/partner_cert_1.crt"
+  - alias: "partner_cert_2"
+    subject: "CN=Partner2, O=Partner, C=US"
+    issuer: "CN=Partner_CA, O=Partner, C=US"
+    validFrom: "2023-01-01T00:00:00Z"
+    validTo: "2025-12-31T23:59:59Z"
+    filePath: "/opt/pingidentity/keystore/partner_cert_2.crt"
+
+trustedCertGroups:
+  - groupName: "Partners"
+    certificates:
+      - alias: "usd_dive25_cert"
+      - alias: "usb_dive25_cert"
+      - alias: "ush_dive_cert"
+      - alias: "geoaxis_oidc_cert"
+      - alias: "partner_cert_1"
+      - alias: "partner_cert_2"
+  - groupName: "Internal"
+    certificates:
+      - alias: "pingaccess_cert"
+
+keyPairs:
+  - alias: "signing_key"
+    privateKeyPath: "/opt/pingidentity/keys/signing.key"
+    publicKeyPath: "/opt/pingidentity/keys/signing.pub"
+
+reverseProxy:
+  enabled: true
+  proxyHeaders:
+    - "X-Forwarded-For"
+    - "X-Forwarded-Proto"
+    - "X-Forwarded-Host"
+
+accessControl:
+  defaultPolicy: "deny"
+  routes:
+    - name: "WordPress_Frontend"
+      path: "/wordpress/*"
+      target: "http://wordpress.dive25.com:80"
+      ssoRequired: true
+      description: "Production route for the WordPress front-end UI"
+    - name: "Backend_API"
+      path: "/api/*"
+      target: "http://nodejs-api.dive25.com:3000"
+      ssoRequired: true
+      opaIntegration:
+        enabled: true
+        opaUrl: "http://opa.dive25.com:8181/v1/data/access_policy/allow"
+      description: "Production route for the Node.js API with OPA ABAC enforcement"
+
+administrators:
+  - username: "mike"
+    password: "mike2222"
+  - username: "aubrey"
+    password: "aubrey456"

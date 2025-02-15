@@ -1,0 +1,19 @@
+# Development-specific overrides for PingFederate
+server:
+  host: "dev.pingfederate.dive25.com"
+  port: 9031
+
+idp:
+  localIdP:
+    entityId: "urn:dive25:localidp:dev"
+
+federation:
+  trustedIdPs:
+    - name: "Test_IdP"
+      type: "SAML"
+      metadataUrl: "https://test-idp.dive25.com/metadata"
+
+security:
+  tls:
+    keystorePath: "/opt/pingidentity/keystore/dev-dive25.jks"
+    keystorePassword: "dev_changeit"

@@ -1,0 +1,43 @@
+# PingFederate common configuration (version 12.2.0-latest)
+server:
+  instanceName: "DIVE25-PF"
+  version: "12.2.0-latest"
+  bindAddress: "0.0.0.0"
+  runtimePort: 9031
+  adminPort: 9999
+  dataDirectory: "/opt/pingidentity/data"
+  logsDirectory: "/opt/pingidentity/logs"
+
+idp:
+  enabled: true
+  metadataUrl: "https://pingfederate.dive25.com:9031/idp/metadata"
+  localIdP:
+    entityId: "urn:dive25:localidp"
+    signingCertificate: "/opt/pingidentity/certs/signing.crt"
+    privateKey: "/opt/pingidentity/certs/signing.key"
+
+federation:
+  trustedIdPs:
+    - name: "Generic_IdP"
+      type: "SAML"
+      metadataUrl: "https://idp.example.com/metadata"
+
+attributes:
+  normalizationSchema: "DIVE25"
+  mappingRulesFile: "/opt/pingidentity/config/attribute-mapping.json"
+
+sessionManagement:
+  sessionTimeout: 3600
+  idleTimeout: 600
+
+security:
+  tls:
+    enabled: true
+    keystorePath: "/opt/pingidentity/keystore/dive25.jks"
+    keystorePassword: "changeit"
+
+administrators:
+  - username: "mike"
+    password: "mike2222"
+  - username: "aubrey"
+    password: "aubrey456"

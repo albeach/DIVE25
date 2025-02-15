@@ -1,0 +1,88 @@
+# Development-specific PingAccess configuration (v8.2.0-latest)
+server:
+  host: "dev.proxy.dive25.com"
+  port: 8443
+  bindAddress: "0.0.0.0"
+  dataDirectory: "/opt/pingidentity/data"
+  logsDirectory: "/opt/pingidentity/logs"
+
+sslContext:
+  enabled: true
+  keyStore:
+    path: "/opt/pingidentity/keystore/dev-dive25.jks"
+    password: "dev_changeit"
+    alias: "dev_pingaccess_cert"
+  trustStore:
+    path: "/opt/pingidentity/keystore/dev-truststore.jks"
+    password: "dev_truststore_password"
+  protocols:
+    - TLSv1.2
+    - TLSv1.3
+  cipherSuites:
+    - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+    - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+
+certificates:
+  - alias: "dev_pingaccess_cert"
+    subject: "CN=dev.proxy.dive25.com, O=DIVE25, C=US"
+    issuer: "CN=DIVE25_DEV_CA, O=DIVE25, C=US"
+    validFrom: "2023-01-01T00:00:00Z"
+    validTo: "2025-12-31T23:59:59Z"
+
+preloadedCertificates:
+  - alias: "dev_partner_cert_1"
+    subject: "CN=DevPartner1, O=Partner, C=US"
+    issuer: "CN=Partner_DEV_CA, O=Partner, C=US"
+    validFrom: "2023-01-01T00:00:00Z"
+    validTo: "2025-12-31T23:59:59Z"
+    filePath: "/opt/pingidentity/keystore/dev_partner_cert_1.crt"
+  - alias: "dev_partner_cert_2"
+    subject: "CN=DevPartner2, O=Partner, C=US"
+    issuer: "CN=Partner_DEV_CA, O=Partner, C=US"
+    validFrom: "2023-01-01T00:00:00Z"
+    validTo: "2025-12-31T23:59:59Z"
+    filePath: "/opt/pingidentity/keystore/dev_partner_cert_2.crt"
+
+trustedCertGroups:
+  - groupName: "Partners"
+    certificates:
+      - alias: "dev_partner_cert_1"
+      - alias: "dev_partner_cert_2"
+  - groupName: "Internal"
+    certificates:
+      - alias: "dev_pingaccess_cert"
+
+keyPairs:
+  - alias: "dev_signing_key"
+    privateKeyPath: "/opt/pingidentity/keys/dev_signing.key"
+    publicKeyPath: "/opt/pingidentity/keys/dev_signing.pub"
+
+reverseProxy:
+  enabled: true
+  proxyHeaders:
+    - "X-Forwarded-For"
+    - "X-Forwarded-Proto"
+    - "X-Forwarded-Host"
+
+accessControl:
+  defaultPolicy: "deny"
+  routes:
+    - name: "WordPress_Frontend"
+      path: "/wordpress/*"
+      target: "http://dev-wordpress:80"
+      ssoRequired: true
+      description: "Development route for the WordPress front-end"
+    - name: "Backend_API"
+      path: "/api/*"
+      target: "http://dev-nodejs-api:3000"
+      ssoRequired: true
+      opaIntegration:
+        enabled: true
+        opaUrl: "http://opa-dev:8181/v1/data/access_policy/allow"
+      description: "Development route for the Node.js API with OPA integration"
+
+administrators:
+  - username: "mike"
+    password: "mike2222"
+  - username: "aubrey"
+    password: "aubrey456"
