@@ -12,6 +12,9 @@ COPY . .
 # Build the project
 RUN npm run build
 
+# Diagnostic: list contents of /app/dist to verify build output
+RUN ls -la /app/dist
+
 # Remove dev dependencies to slim down the production image
 RUN npm prune --production
 
