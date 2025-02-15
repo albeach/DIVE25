@@ -98,8 +98,6 @@ services:
     build: ./src/backend
     environment:
       - NODE_ENV=production
-      - PING_IDENTITY_USER=ping-user
-      - PING_IDENTITY_KEY=ping-key
 
     ports:
       - "8080:8080"

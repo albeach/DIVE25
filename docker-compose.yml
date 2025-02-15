@@ -1,19 +1,12 @@
-x-common-variables: &common-variables
-  PING_IDENTITY_ACCEPT_EULA: "YES"
-  PING_IDENTITY_DEVOPS_USER: ${PING_IDENTITY_DEVOPS_USER}
-  PING_IDENTITY_DEVOPS_KEY: ${PING_IDENTITY_DEVOPS_KEY}
-  PING_IDENTITY_PASSWORD: "2FederateM0re"
-
 services:
   # PingFederate handles federation and SSO
   pingfederate:
     image: pingidentity/pingfederate:12.2.0-latest
     environment:
-      <<: *common-variables
       PF_ADMIN_USER_PASSWORD: "2FederateM0re"
       PF_LOG_LEVEL: "INFO"
     volumes:
-      - ./licenses:/opt/in/licenses
+      - ./licenses:/opt/in/instance/server/default/conf
       - ./server-profiles/pingfederate/instance:/opt/in/instance
       - ./certificates:/opt/in/certificates
       - pingfederate-out:/opt/out
@@ -35,7 +28,7 @@ services:
       <<: *common-variables
       PA_ADMIN_PASSWORD_INITIAL: "2FederateM0re"
     volumes:
-      - ./licenses:/opt/in/licenses
+      - ./licenses:/opt/in/instance/conf
       - ./server-profiles/pingaccess/instance:/opt/in/instance
       - ./certificates:/opt/in/certificates
       - pingaccess-out:/opt/out
@@ -57,7 +50,7 @@ services:
       <<: *common-variables
       PD_ADMIN_USER_PASSWORD: "2FederateM0re"
     volumes:
-      - ./licenses:/opt/in/licenses
+      - ./licenses:/opt/in/pd.profile/server-root/pre-setup
       - ./server-profiles/pingdirectory/instance:/opt/in/instance
       - ./certificates:/opt/in/certificates
       - pingdirectory-out:/opt/out

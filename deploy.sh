@@ -270,16 +270,8 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
                 ENVIRONMENT="$2"
                 shift 2
                 ;;
-            --ping-user)
-                PING_IDENTITY_DEVOPS_USER="$2"
-                shift 2
-                ;;
-            --ping-key)
-                PING_IDENTITY_DEVOPS_KEY="$2"
-                shift 2
-                ;;
             --help)
-                echo "Usage: $0 --env <dev|prod> --ping-user <username> --ping-key <key>"
+                echo "Usage: $0 --env <dev|prod>"
                 exit 0
                 ;;
             *)
@@ -290,9 +282,9 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     done
     
     # Validate required parameters
-    if [[ -z "$ENVIRONMENT" || -z "$PING_IDENTITY_DEVOPS_USER" || -z "$PING_IDENTITY_DEVOPS_KEY" ]]; then
-        log "ERROR" "Missing required parameters"
-        echo "Usage: $0 --env <dev|prod> --ping-user <username> --ping-key <key>"
+    if [[ -z "$ENVIRONMENT" ]]; then
+        log "ERROR" "Missing required parameter --env <dev|prod>"
+        echo "Usage: $0 --env <dev|prod>"
         exit 1
     fi
 
