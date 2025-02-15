@@ -8,11 +8,11 @@ import {
     DocumentContent,
     DocumentMetadata,
     ValidationResult,
-    AuthError
+    AuthError,
+    ClearanceLevel
 } from '../types';
 import { config } from '../config/config';
 import * as crypto from 'crypto';
-import { ClearanceLevel } from '../types';
 
 /**
  * Service responsible for secure document storage and retrieval in the NATO system.
@@ -25,22 +25,21 @@ export class DocumentStorageService {
     private readonly logger: LoggerService;
     private readonly metrics: MetricsService;
     private readonly opa: OPAService;
-    private collection!: Collection<NATODocument>;
+    private readonly collection: Collection<NATODocument>;
 
     // Storage configuration
     private readonly STORAGE_CONFIG = {
-        ENCRYPTION_ALGORITHM: 'aes-256-gcm',
-        KEY_LENGTH: 32,
-        AUTH_TAG_LENGTH: 16,
+        ENCRYPTION: {
+            ALGORITHM: 'aes-256-gcm',
+            IV_LENGTH: 12,
+            AUTH_TAG_LENGTH: 16
+        },
+        MAX_CONTENT_SIZE: 100 * 1024 * 1024, // 100MB
         ALLOWED_MIME_TYPES: [
             'application/pdf',
             'application/msword',
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            'text/plain',
-            'application/xml'
-        ],
-        MAX_FILE_SIZE: 100 * 1024 * 1024, // 100MB
-        CHUNK_SIZE: 5 * 1024 * 1024 // 5MB for streaming
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        ]
     };
 
     private constructor() {
@@ -64,15 +63,15 @@ export class DocumentStorageService {
     private async initializeStorage(): Promise<void> {
         try {
             // Initialize MongoDB collection
-            // this.collection = await this.db.getCollection<NATODocument>('documents');
+            this.collection = await this.db.getCollection<NATODocument>('documents');
 
             // Validate encryption configuration
-            // if (!config.storage.encryptionKey) {
-            //     throw new Error('Storage encryption key not configured');
-            // }
+            if (!config.storage.encryptionKey) {
+                throw new Error('Storage encryption key not configured');
+            }
 
             // Create storage-specific indexes
-            // await this.createStorageIndexes();
+            await this.createStorageIndexes();
 
             this.logger.info('Document storage system initialized');
 
@@ -90,11 +89,13 @@ export class DocumentStorageService {
         metadata: DocumentMetadata,
         securityAttributes: Pick<NATODocument, 'clearance' | 'releasableTo' | 'title'> & Partial<NATODocument>
     ): Promise<NATODocument> {
+        const startTime = Date.now();
+
         try {
             // Validate content and metadata
             await this.validateContent(content, metadata);
 
-            // Generate unique storage location
+            // Generate storage location
             const location = this.generateStorageLocation();
 
             // Encrypt content
@@ -105,8 +106,8 @@ export class DocumentStorageService {
 
             // Create document content record
             const documentContent: DocumentContent = {
-                location: location,
-                hash: hash,
+                location,
+                hash,
                 size: content.length,
                 mimeType: metadata.mimeType
             };
@@ -128,7 +129,9 @@ export class DocumentStorageService {
 
             // Record metrics
             this.metrics.recordDocumentAccess(document.clearance as ClearanceLevel, true, {
-                size: content.length
+                operation: 'store',
+                size: content.length,
+                duration: Date.now() - startTime
             });
 
             return document;
@@ -263,7 +266,7 @@ export class DocumentStorageService {
         const warnings: string[] = [];
 
         // Check file size
-        if (content.length > this.STORAGE_CONFIG.MAX_FILE_SIZE) {
+        if (content.length > this.STORAGE_CONFIG.MAX_CONTENT_SIZE) {
             errors.push('Document exceeds maximum file size');
         }
 
@@ -305,27 +308,26 @@ export class DocumentStorageService {
         iv: Buffer;
         authTag: Buffer;
     }> {
-        // Generate initialization vector
-        const iv = crypto.randomBytes(16);
+        const iv = crypto.randomBytes(this.STORAGE_CONFIG.ENCRYPTION.IV_LENGTH);
+        const key = Buffer.from(config.storage.encryptionKey, 'hex');
 
-        // Create cipher
         const cipher = crypto.createCipheriv(
-            this.STORAGE_CONFIG.ENCRYPTION_ALGORITHM,
-            Buffer.from(config.storage.encryptionKey, 'hex'),
+            this.STORAGE_CONFIG.ENCRYPTION.ALGORITHM,
+            key,
             iv,
-            { authTagLength: this.STORAGE_CONFIG.AUTH_TAG_LENGTH } as crypto.CipherGCMOptions
-        );
+            { authTagLength: this.STORAGE_CONFIG.ENCRYPTION.AUTH_TAG_LENGTH }
+        ) as crypto.CipherGCM;
 
-        // Encrypt content
         const encrypted = Buffer.concat([
             cipher.update(content),
             cipher.final()
         ]);
 
-        // Get authentication tag
-        const authTag = (cipher as crypto.CipherGCM).getAuthTag();
-
-        return { encrypted, iv, authTag };
+        return {
+            encrypted,
+            iv,
+            authTag: cipher.getAuthTag()
+        };
     }
 
     /**
@@ -339,10 +341,10 @@ export class DocumentStorageService {
         }
     ): Promise<Buffer> {
         const decipher = crypto.createDecipheriv(
-            this.STORAGE_CONFIG.ENCRYPTION_ALGORITHM,
+            this.STORAGE_CONFIG.ENCRYPTION.ALGORITHM,
             Buffer.from(config.storage.encryptionKey, 'hex'),
             encryptedData.iv,
-            { authTagLength: this.STORAGE_CONFIG.AUTH_TAG_LENGTH } as crypto.CipherGCMOptions
+            { authTagLength: this.STORAGE_CONFIG.ENCRYPTION.AUTH_TAG_LENGTH } as crypto.CipherGCMOptions
         );
 
         (decipher as crypto.DecipherGCM).setAuthTag(encryptedData.authTag);
@@ -451,24 +453,18 @@ export class DocumentStorageService {
     /**
      * Creates typed storage error with proper error codes.
      */
-    private createStorageError(error: unknown, message: string): AuthError {
+    private createStorageError(
+        error: unknown,
+        message: string,
+        statusCode: number = 500
+    ): AuthError {
         const storageError = new Error(message) as AuthError;
-        
-        if (error instanceof Error) {
-            storageError.statusCode = 500;
-            storageError.code = 'STORAGE_ERROR';
-            storageError.details = {
-                originalError: error.message,
-                timestamp: new Date()
-            };
-        } else {
-            storageError.statusCode = 500;
-            storageError.code = 'STORAGE_UNKNOWN_ERROR';
-            storageError.details = {
-                timestamp: new Date()
-            };
-        }
-
+        storageError.statusCode = statusCode;
+        storageError.code = 'STORAGE_ERROR';
+        storageError.details = {
+            originalError: error instanceof Error ? error.message : 'Unknown error',
+            timestamp: new Date()
+        };
         return storageError;
     }
 

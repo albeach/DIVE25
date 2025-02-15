@@ -1,51 +1,68 @@
 // src/services/OPAService.ts
 
-import axios from 'axios';
+import axios, { AxiosInstance } from 'axios';
 import { config } from '../config/config';
-import { LoggerService } from '../services/LoggerService';
-import { NATODocument, ValidationResult } from '../types';
-
-export interface UserAttributes {
-    uniqueIdentifier: string;
-    countryOfAffiliation: string;
-    clearance: string;
-    coiTags?: string[];
-    lacvCode?: string;
-}
-
-export interface ResourceAttributes {
-    clearance: string;
-    releasableTo: string[];
-    coiTags?: string[];
-    lacvCode?: string;
-}
-
-export interface OPAInput {
-    user: UserAttributes;
-    resource: ResourceAttributes;
-}
-
-export interface OPAResult {
-    allow: boolean;
-    reason?: string;
-}
+import { LoggerService } from './LoggerService';
+import { MetricsService } from './MetricsService';
+import { 
+    UserAttributes, 
+    ResourceAttributes, 
+    OPAResult, 
+    ValidationResult,
+    NATODocument,
+    ClearanceLevel 
+} from '../types';
 
 export interface OPAService {
-    evaluateAccess(user: UserAttributes, resource: ResourceAttributes): Promise<OPAResult>;
+    evaluateAccess(user: UserAttributes, resource: ResourceAttributes, action?: string): Promise<OPAResult>;
     validateAttributes(attributes: UserAttributes): Promise<ValidationResult>;
-    evaluateClearanceAccess(userClearance: string, requiredClearance: string): Promise<OPAResult>;
+    evaluateClearanceAccess(userClearance: ClearanceLevel, requiredClearance: ClearanceLevel): Promise<OPAResult>;
     evaluateUpdateAccess(userAttributes: UserAttributes, document: NATODocument): Promise<OPAResult>;
-    evaluateClearanceModification(userAttributes: UserAttributes, from: string, to: string): Promise<OPAResult>;
-    evaluateReleasabilityModification(userAttributes: UserAttributes, changes: any): Promise<OPAResult>;
+    evaluateClearanceModification(userAttributes: UserAttributes, from: ClearanceLevel, to: ClearanceLevel): Promise<OPAResult>;
+    evaluateReleasabilityModification(userAttributes: UserAttributes, marker: string): Promise<OPAResult>;
     evaluateCoiModification(userAttributes: UserAttributes, changes: any): Promise<OPAResult>;
 }
 
 export class OPAService {
     private static instance: OPAService;
-    private logger: LoggerService;
+    private readonly axios: AxiosInstance;
+    private readonly logger: LoggerService;
+    private readonly metrics: MetricsService;
+
+    private readonly CACHE_CONFIG = {
+        POLICY_TTL: 300, // 5 minutes
+        RETRY_ATTEMPTS: 3,
+        TIMEOUT: 5000 // 5 seconds
+    };
+
+    private readonly CLEARANCE_LEVELS: Record<ClearanceLevel, number> = {
+        'UNCLASSIFIED': 0,
+        'RESTRICTED': 1,
+        'NATO CONFIDENTIAL': 2,
+        'NATO SECRET': 3,
+        'COSMIC TOP SECRET': 4
+    };
 
     private constructor() {
         this.logger = LoggerService.getInstance();
+        this.metrics = MetricsService.getInstance();
+
+        this.axios = axios.create({
+            baseURL: config.opa.url,
+            timeout: this.CACHE_CONFIG.TIMEOUT,
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+
+        this.initializeErrorHandling();
+    }
+
+    private initializeErrorHandling(): void {
+        this.axios.interceptors.response.use(
+            response => response,
+            error => this.handleAxiosError(error)
+        );
     }
 
     public static getInstance(): OPAService {
@@ -55,27 +72,40 @@ export class OPAService {
         return OPAService.instance;
     }
 
-    async evaluateAccess(
+    public async evaluateAccess(
         user: UserAttributes,
-        resource: ResourceAttributes
+        resource: ResourceAttributes,
+        action?: string
     ): Promise<OPAResult> {
-        try {
-            const input: OPAInput = { user, resource };
-            const response = await axios.post(config.opa.url, { input });
+        const startTime = Date.now();
 
-            if (!response.data.result) {
-                return {
-                    allow: false,
-                    reason: 'Policy evaluation failed'
-                };
-            }
+        try {
+            const response = await this.axios.post('/v1/data/dive25/abac', {
+                input: {
+                    user,
+                    resource,
+                    action
+                }
+            });
+
+            const result = response.data.result;
+            
+            await this.metrics.recordOperationMetrics('opa_evaluation', {
+                duration: Date.now() - startTime,
+                decision: result.allow,
+                userClearance: user.clearance,
+                resourceClearance: resource.clearance
+            });
 
             return {
-                allow: response.data.result.allow === true,
-                reason: response.data.result.reason
+                allow: result.allow === true,
+                reason: result.reason
             };
+
         } catch (error) {
             this.logger.error('OPA evaluation error:', error);
+            await this.metrics.recordOperationError('opa_evaluation', error);
+            
             return {
                 allow: false,
                 reason: 'Policy evaluation error'
@@ -83,44 +113,48 @@ export class OPAService {
         }
     }
 
-    async validateAttributes(attributes: UserAttributes): Promise<{
-        valid: boolean;
-        missingAttributes?: string[];
-    }> {
+    public async validateAttributes(
+        attributes: UserAttributes
+    ): Promise<ValidationResult> {
         try {
-            const response = await axios.post(`${config.opa.url}/validate_attributes`, {
-                input: { user: attributes }
+            const response = await this.axios.post('/v1/data/dive25/attribute_validation', {
+                input: { attributes }
             });
 
+            const result = response.data.result;
             return {
-                valid: response.data.result.valid === true,
-                missingAttributes: response.data.result.missing_attrs
+                valid: result.valid === true,
+                errors: result.errors || [],
+                warnings: result.warnings || [],
+                missingAttributes: result.missing_attrs
             };
+
         } catch (error) {
             this.logger.error('Attribute validation error:', error);
             return {
                 valid: false,
+                errors: ['Attribute validation failed'],
                 missingAttributes: []
             };
         }
     }
 
-    async evaluateClearanceAccess(
-        userClearance: string,
-        requiredClearance: string
+    public async evaluateClearanceAccess(
+        userClearance: ClearanceLevel,
+        requiredClearance: ClearanceLevel
     ): Promise<OPAResult> {
         try {
-            const response = await axios.post(`${config.opa.url}/clearance`, {
-                input: {
-                    userClearance,
-                    requiredClearance
-                }
-            });
+            const userLevel = this.CLEARANCE_LEVELS[userClearance];
+            const requiredLevel = this.CLEARANCE_LEVELS[requiredClearance];
+
+            const hasAccess = userLevel >= requiredLevel;
 
             return {
-                allow: response.data.result.allow === true,
-                reason: response.data.result.reason
+                allow: hasAccess,
+                reason: hasAccess ? undefined : 
+                    `Insufficient clearance level: requires ${requiredClearance}`
             };
+
         } catch (error) {
             this.logger.error('Clearance evaluation error:', error);
             return {
@@ -130,12 +164,12 @@ export class OPAService {
         }
     }
 
-    async evaluateUpdateAccess(
+    public async evaluateUpdateAccess(
         userAttributes: UserAttributes,
         document: NATODocument
     ): Promise<OPAResult> {
         try {
-            const response = await axios.post(`${config.opa.url}/document_update`, {
+            const response = await this.axios.post('/v1/data/dive25/document_update', {
                 input: {
                     user: userAttributes,
                     document
@@ -146,6 +180,7 @@ export class OPAService {
                 allow: response.data.result.allow === true,
                 reason: response.data.result.reason
             };
+
         } catch (error) {
             this.logger.error('Update access evaluation error:', error);
             return {
@@ -155,15 +190,17 @@ export class OPAService {
         }
     }
 
-    async evaluatePartnerAccess(
+    public async evaluateClearanceModification(
         userAttributes: UserAttributes,
-        partnerAttributes: any
+        from: ClearanceLevel,
+        to: ClearanceLevel
     ): Promise<OPAResult> {
         try {
-            const response = await axios.post(`${config.opa.url}/partner_access`, {
+            const response = await this.axios.post('/v1/data/dive25/clearance_modification', {
                 input: {
                     user: userAttributes,
-                    partner: partnerAttributes
+                    from,
+                    to
                 }
             });
 
@@ -171,28 +208,51 @@ export class OPAService {
                 allow: response.data.result.allow === true,
                 reason: response.data.result.reason
             };
+
         } catch (error) {
-            this.logger.error('Partner access evaluation error:', error);
+            this.logger.error('Clearance modification evaluation error:', error);
             return {
                 allow: false,
-                reason: 'Partner access evaluation error'
+                reason: 'Clearance modification evaluation error'
             };
         }
     }
 
-    public async evaluateDocumentAccess(
+    public async evaluateReleasabilityModification(
         userAttributes: UserAttributes,
-        document: NATODocument,
-        action: string
-    ): Promise<{ allow: boolean; reason?: string }> {
+        marker: string
+    ): Promise<OPAResult> {
         try {
-            // Implement your OPA evaluation logic here
-            return { allow: true };
+            const response = await this.axios.post('/v1/data/dive25/releasability_modification', {
+                input: {
+                    user: userAttributes,
+                    marker
+                }
+            });
+
+            return {
+                allow: response.data.result.allow === true,
+                reason: response.data.result.reason
+            };
+
         } catch (error) {
-            this.logger.error('Error evaluating document access:', error);
-            return { allow: false, reason: 'Error evaluating access' };
+            this.logger.error('Releasability modification evaluation error:', error);
+            return {
+                allow: false,
+                reason: 'Releasability modification evaluation error'
+            };
         }
+    }
+
+    private handleAxiosError(error: any): never {
+        this.logger.error('OPA request failed:', error);
+        
+        throw {
+            message: error.response?.data?.message || error.message,
+            status: error.response?.status || 500,
+            code: 'OPA_ERROR'
+        };
     }
 }
 
-export default OPAService;
+export default OPAService.getInstance();

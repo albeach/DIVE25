@@ -7,7 +7,8 @@ import {
     PaginationOptions,
     SearchResult,
     DocumentMetadata,
-    ClearanceLevel
+    ClearanceLevel,
+    AuthError
 } from '../types';
 import { config } from '../config/config';
 
@@ -19,10 +20,32 @@ export class DatabaseService {
     private readonly metrics: MetricsService;
     private collection!: Collection<NATODocument>;
 
+    // Database configuration
+    private readonly DB_CONFIG = {
+        RETRY_ATTEMPTS: 3,
+        RETRY_DELAY: 1000,
+        CONNECTION_TIMEOUT: 30000,
+        OPERATION_TIMEOUT: 10000,
+        BATCH_SIZE: 100,
+        INDEX_OPTIONS: {
+            background: true,
+            sparse: true
+        }
+    };
+
     private constructor() {
         this.logger = LoggerService.getInstance();
         this.metrics = MetricsService.getInstance();
-        this.client = new MongoClient(config.mongo.uri);
+        
+        this.client = new MongoClient(config.mongo.uri, {
+            maxPoolSize: 50,
+            minPoolSize: 10,
+            maxConnecting: 10,
+            connectTimeoutMS: this.DB_CONFIG.CONNECTION_TIMEOUT,
+            socketTimeoutMS: this.DB_CONFIG.OPERATION_TIMEOUT,
+            retryWrites: true,
+            retryReads: true
+        });
     }
 
     public static getInstance(): DatabaseService {
@@ -37,10 +60,16 @@ export class DatabaseService {
             await this.client.connect();
             this.db = this.client.db('dive25');
             this.collection = this.db.collection('documents');
+            
             await this.createIndexes();
+            await this.validateCollections();
+
+            this.logger.info('Database connection established');
+            
         } catch (error) {
             this.logger.error('MongoDB connection error:', error);
-            throw error;
+            this.metrics.recordOperationError('db_connection', error);
+            throw this.createDatabaseError('Failed to connect to database', error);
         }
     }
 
@@ -49,51 +78,85 @@ export class DatabaseService {
         options: PaginationOptions
     ): Promise<SearchResult<NATODocument>> {
         this.validateConnection();
-        const searchQuery = this.buildSearchQuery(query);
-        const sort = this.buildSortOptions(options.sort);
-        
-        const [documents, total] = await Promise.all([
-            this.collection.find(searchQuery)
-                .sort(sort)
-                .skip((options.page - 1) * options.limit)
-                .limit(options.limit)
-                .toArray(),
-            this.collection.countDocuments(searchQuery)
-        ]);
+        const startTime = Date.now();
 
-        // Convert WithId<NATODocument> to NATODocument
-        const convertedDocs = documents.map(doc => ({
-            ...doc,
-            _id: doc._id.toString()
-        })) as NATODocument[];
+        try {
+            const searchQuery = this.buildSearchQuery(query);
+            const sort = this.buildSortOptions(options.sort);
+            
+            const [documents, total] = await Promise.all([
+                this.collection.find(searchQuery)
+                    .sort(sort)
+                    .skip((options.page - 1) * options.limit)
+                    .limit(options.limit)
+                    .toArray(),
+                this.collection.countDocuments(searchQuery)
+            ]);
 
-        return {
-            data: convertedDocs,
-            total,
-            page: options.page,
-            limit: options.limit
-        };
+            // Record metrics
+            this.metrics.recordOperationMetrics('document_search', {
+                duration: Date.now() - startTime,
+                resultCount: documents.length,
+                totalResults: total
+            });
+
+            return {
+                data: this.convertDocuments(documents),
+                total,
+                page: options.page,
+                limit: options.limit
+            };
+
+        } catch (error) {
+            this.logger.error('Document search error:', error);
+            this.metrics.recordOperationError('document_search', error);
+            throw this.createDatabaseError('Failed to search documents', error);
+        }
     }
 
     public async getDocument(id: string): Promise<NATODocument | null> {
         this.validateConnection();
-        if (!ObjectId.isValid(id)) return null;
-        const doc = await this.collection.findOne({ _id: new ObjectId(id) });
-        if (!doc) return null;
-        
-        // Convert WithId<NATODocument> to NATODocument
-        return {
-            ...doc,
-            _id: doc._id.toString()
-        } as NATODocument;
+
+        try {
+            if (!ObjectId.isValid(id)) return null;
+            
+            const doc = await this.collection.findOne({ 
+                _id: new ObjectId(id),
+                deleted: { $ne: true }
+            });
+            
+            return doc ? this.convertDocument(doc) : null;
+
+        } catch (error) {
+            this.logger.error('Document retrieval error:', error);
+            this.metrics.recordOperationError('document_get', error);
+            throw this.createDatabaseError('Failed to retrieve document', error);
+        }
     }
 
     public async createDocument(document: Omit<NATODocument, '_id'>): Promise<NATODocument> {
         this.validateConnection();
-        const result = await this.collection.insertOne(document as NATODocument);
-        const created = await this.getDocument(result.insertedId.toString());
-        if (!created) throw new Error('Failed to retrieve created document');
-        return created;
+
+        try {
+            const result = await this.collection.insertOne(document as NATODocument);
+            const created = await this.getDocument(result.insertedId.toString());
+            
+            if (!created) {
+                throw new Error('Failed to retrieve created document');
+            }
+
+            this.metrics.recordOperationMetrics('document_create', {
+                documentId: created._id,
+                clearance: created.clearance
+            });
+
+            return created;
+
+        } catch (error) {
+            this.logger.error('Document creation error:', error);
+            this.metrics.recordOperationError('document_create', error);
+            throw this.createDatabaseError('Failed to create document', error);
+        }
     }
 
     public async updateDocument(
@@ -150,14 +213,34 @@ export class DatabaseService {
     }
 
     private validateConnection(): void {
-        if (!this.db) throw new Error('Database not connected');
+        if (!this.db) {
+            throw new Error('Database not connected');
+        }
     }
 
     private async createIndexes(): Promise<void> {
-        await this.collection.createIndex({ clearance: 1 });
-        await this.collection.createIndex({ releasableTo: 1 });
-        await this.collection.createIndex({ coiTags: 1 });
-        await this.collection.createIndex({ 'metadata.createdAt': 1 });
+        await this.collection.createIndexes([
+            {
+                key: { clearance: 1 },
+                ...this.DB_CONFIG.INDEX_OPTIONS
+            },
+            {
+                key: { releasableTo: 1 },
+                ...this.DB_CONFIG.INDEX_OPTIONS
+            },
+            {
+                key: { coiTags: 1 },
+                ...this.DB_CONFIG.INDEX_OPTIONS
+            },
+            {
+                key: { 'metadata.createdAt': 1 },
+                ...this.DB_CONFIG.INDEX_OPTIONS
+            },
+            {
+                key: { deleted: 1 },
+                ...this.DB_CONFIG.INDEX_OPTIONS
+            }
+        ]);
     }
 
     private buildSearchQuery(query: DocumentSearchQuery): Record<string, any> {
@@ -172,6 +255,28 @@ export class DatabaseService {
     private buildSortOptions(sort?: PaginationOptions['sort']): Record<string, 1 | -1> {
         if (!sort) return { 'metadata.createdAt': -1 };
         return { [sort.field]: sort.order === 'desc' ? -1 : 1 };
+    }
+
+    private createDatabaseError(message: string, originalError: unknown): AuthError {
+        const error = new Error(message) as AuthError;
+        error.statusCode = 500;
+        error.code = 'DATABASE_ERROR';
+        error.details = {
+            originalError: originalError instanceof Error ? originalError.message : 'Unknown error',
+            timestamp: new Date()
+        };
+        return error;
+    }
+
+    private convertDocument(doc: WithId<NATODocument>): NATODocument {
+        return {
+            ...doc,
+            _id: doc._id.toString()
+        };
+    }
+
+    private convertDocuments(docs: WithId<NATODocument>[]): NATODocument[] {
+        return docs.map(doc => this.convertDocument(doc));
     }
 }
 

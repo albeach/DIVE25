@@ -2,7 +2,10 @@ import { Request, Response, NextFunction, RequestHandler } from 'express';
 import { PingFederateService } from '../services/PingFederateService';
 import { FederationMonitoringService } from '../services/FederationMonitoringService';
 import { LoggerService } from '../services/LoggerService';
+import { MetricsService } from '../services/MetricsService';
 import { OPAService } from '../services/OPAService';
+import { Redis } from 'ioredis';
+import { config } from '../config/config';
 import { 
     AuthenticatedRequest, 
     AuthError, 
@@ -12,20 +15,53 @@ import {
     LacvCode 
 } from '../types';
 import { asAuthError } from './errorHandler';
-import { config } from '../config/config';
 
 export class AuthMiddleware {
     private static instance: AuthMiddleware;
     private readonly pingFedService: PingFederateService;
     private readonly monitoringService: FederationMonitoringService;
     private readonly logger: LoggerService;
+    private readonly metrics: MetricsService;
     private readonly opa: OPAService;
+    private readonly redis: Redis;
+
+    // Security configuration
+    private readonly SECURITY_CONFIG = {
+        TOKEN_EXPIRY_BUFFER: 300, // 5 minutes
+        MAX_TOKEN_AGE: 3600, // 1 hour
+        REQUIRED_ATTRIBUTES: [
+            'uniqueIdentifier',
+            'countryOfAffiliation',
+            'clearance'
+        ],
+        CLEARANCE_LEVELS: [
+            'UNCLASSIFIED',
+            'RESTRICTED',
+            'NATO CONFIDENTIAL',
+            'NATO SECRET',
+            'COSMIC TOP SECRET'
+        ] as ClearanceLevel[],
+        RATE_LIMIT: {
+            WINDOW_MS: 900000, // 15 minutes
+            MAX_REQUESTS: 100
+        }
+    };
 
     private constructor() {
         this.pingFedService = PingFederateService.getInstance();
         this.monitoringService = FederationMonitoringService.getInstance();
         this.logger = LoggerService.getInstance();
+        this.metrics = MetricsService.getInstance();
         this.opa = OPAService.getInstance();
+        
+        this.redis = new Redis({
+            ...config.redis,
+            maxRetriesPerRequest: 3,
+            enableReadyCheck: true,
+            retryStrategy: (times: number) => Math.min(times * 50, 2000)
+        });
+
+        this.initializeErrorHandling();
     }
 
     public static getInstance(): AuthMiddleware {
@@ -35,6 +71,13 @@ export class AuthMiddleware {
         return AuthMiddleware.instance;
     }
 
+    private initializeErrorHandling(): void {
+        this.redis.on('error', (error) => {
+            this.logger.error('Redis connection error:', error);
+            this.metrics.recordOperationError('redis_auth', error);
+        });
+    }
+
     public authenticate: RequestHandler = async (
         req: Request,
         res: Response,
@@ -42,6 +85,7 @@ export class AuthMiddleware {
     ): Promise<void> => {
         const startTime = Date.now();
         const partnerId = req.headers['x-federation-partner'] as string;
+        const requestId = req.headers['x-request-id'] as string;
 
         try {
             const authHeader = req.headers.authorization;
@@ -50,8 +94,9 @@ export class AuthMiddleware {
             }
 
             const token = authHeader.split(' ')[1];
-            const userInfo = await this.pingFedService.validateToken(token);
+            await this.checkRateLimit(req.ip);
 
+            const userInfo = await this.pingFedService.validateToken(token);
             await this.validateTokenExpiration(userInfo);
             await this.validateSecurityAttributes(userInfo);
 
@@ -63,6 +108,12 @@ export class AuthMiddleware {
                 true
             );
 
+            await this.metrics.recordOperationMetrics('authentication', {
+                duration: Date.now() - startTime,
+                partnerId,
+                success: true
+            });
+
             next();
         } catch (error) {
             if (partnerId) {
@@ -70,17 +121,47 @@ export class AuthMiddleware {
                     partnerId,
                     'bearer_token',
                     false,
-                    error instanceof Error ? error.message : 'Unknown error'
+                    error.message
                 );
             }
 
-            const authError = asAuthError(error);
-            res.status(authError.statusCode || 401).json({
-                error: authError.message || 'Authentication failed',
-                code: authError.code || 'AUTH000'
+            const authError = this.createAuthError(
+                error.message || 'Authentication failed',
+                error.statusCode || 401,
+                error.code || 'AUTH000'
+            );
+
+            this.logger.error('Authentication error:', {
+                error: authError,
+                partnerId,
+                requestId,
+                ip: req.ip
+            });
+
+            res.status(authError.statusCode).json({
+                error: authError.message,
+                code: authError.code,
+                details: authError.details
             });
         }
     };
+
+    private async checkRateLimit(ip: string): Promise<void> {
+        const key = `ratelimit:${ip}`;
+        const count = await this.redis.incr(key);
+        
+        if (count === 1) {
+            await this.redis.expire(key, this.SECURITY_CONFIG.RATE_LIMIT.WINDOW_MS / 1000);
+        }
+
+        if (count > this.SECURITY_CONFIG.RATE_LIMIT.MAX_REQUESTS) {
+            throw this.createAuthError(
+                'Rate limit exceeded',
+                429,
+                'AUTH007'
+            );
+        }
+    }
 
     public extractUserAttributes: RequestHandler = async (
         req: Request,
@@ -160,23 +241,14 @@ export class AuthMiddleware {
     };
 
     private validateClearanceLevel(clearance: string): ClearanceLevel {
-        const validClearances: ClearanceLevel[] = [
-            'UNCLASSIFIED',
-            'RESTRICTED',
-            'NATO CONFIDENTIAL',
-            'NATO SECRET',
-            'COSMIC TOP SECRET'
-        ];
-
-        if (!validClearances.includes(clearance as ClearanceLevel)) {
+        if (!this.SECURITY_CONFIG.CLEARANCE_LEVELS.includes(clearance as ClearanceLevel)) {
             throw this.createAuthError(
                 'Invalid clearance level',
                 401,
                 'AUTH008',
-                { validLevels: validClearances }
+                { validLevels: this.SECURITY_CONFIG.CLEARANCE_LEVELS }
             );
         }
-
         return clearance as ClearanceLevel;
     }
 
@@ -237,20 +309,18 @@ export class AuthMiddleware {
         const error = new Error(message) as AuthError;
         error.statusCode = statusCode;
         error.code = code;
-        if (details) {
-            error.details = details;
-        }
+        error.details = details;
         return error;
     }
 
     private async validateTokenExpiration(userInfo: any): Promise<void> {
         const now = Math.floor(Date.now() / 1000);
         
-        if (userInfo.exp && userInfo.exp - now < 300) { // 5 minutes buffer
+        if (userInfo.exp && userInfo.exp - now < this.SECURITY_CONFIG.TOKEN_EXPIRY_BUFFER) {
             throw this.createAuthError('Token is about to expire', 401, 'AUTH005');
         }
 
-        if (userInfo.iat && now - userInfo.iat > 3600) { // 1 hour maximum age
+        if (userInfo.iat && now - userInfo.iat > this.SECURITY_CONFIG.MAX_TOKEN_AGE) {
             throw this.createAuthError('Token has exceeded maximum age', 401, 'AUTH006');
         }
     }

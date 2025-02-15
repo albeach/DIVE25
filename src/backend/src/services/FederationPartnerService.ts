@@ -1,6 +1,16 @@
-import axios from 'axios';
+// src/services/FederationPartnerService.ts
+import axios, { AxiosInstance } from 'axios';
+import { Redis } from 'ioredis';
 import { config } from '../config/config';
 import { LoggerService } from './LoggerService';
+import { MetricsService } from './MetricsService';
+import { MetadataValidationService } from './MetadataValidationService';
+import { 
+    PartnerConfig, 
+    FederationPartner,
+    ValidationResult,
+    AuthError 
+} from '../types';
 
 export interface PartnerConfig {
     partnerId: string;
@@ -39,17 +49,43 @@ export interface Partner extends PartnerConfig {
 
 export class FederationPartnerService {
     private static instance: FederationPartnerService;
-    private logger: LoggerService;
-    private baseUrl: string;
-    private adminApiToken: string;
+    private readonly axios: AxiosInstance;
+    private readonly redis: Redis;
+    private readonly logger: LoggerService;
+    private readonly metrics: MetricsService;
+    private readonly metadataValidator: MetadataValidationService;
+    
+    private readonly CACHE_TTL = 3600; // 1 hour
+    private readonly RETRY_ATTEMPTS = 3;
+    private readonly PARTNER_STATUS_KEY = 'partner:status:';
 
     private constructor() {
-        if (!config.pingFederate?.apiUrl || !config.pingFederate?.adminApiToken) {
-            throw new Error('Missing required PingFederate configuration');
-        }
-        this.baseUrl = config.pingFederate.apiUrl;
-        this.adminApiToken = config.pingFederate.adminApiToken;
         this.logger = LoggerService.getInstance();
+        this.metrics = MetricsService.getInstance();
+        this.metadataValidator = MetadataValidationService.getInstance();
+        
+        // Initialize Redis with connection pooling
+        this.redis = new Redis({
+            ...config.redis,
+            maxRetriesPerRequest: this.RETRY_ATTEMPTS,
+            enableReadyCheck: true,
+            connectTimeout: 10000,
+            retryStrategy: (times: number) => {
+                return Math.min(times * 50, 2000);
+            }
+        });
+
+        // Initialize axios with defaults
+        this.axios = axios.create({
+            baseURL: config.pingFederate.baseUrl,
+            timeout: 10000,
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${config.pingFederate.adminApiToken}`
+            }
+        });
+
+        this.initializeErrorHandling();
     }
 
     public static getInstance(): FederationPartnerService {
@@ -59,22 +95,133 @@ export class FederationPartnerService {
         return FederationPartnerService.instance;
     }
 
-    async onboardPartner(partnerConfig: PartnerConfig & { oauthClientId: string }): Promise<Partner> {
-        try {
-            // Create connection
-            const connection = await this.createPartnerConnection(partnerConfig);
-            
-            // Configure attribute mapping
-            await this.configureAttributeMapping(connection.id, partnerConfig.attributeMapping);
-            
-            // Enable connection
-            await this.enableConnection(connection.id);
+    private initializeErrorHandling(): void {
+        this.redis.on('error', (error) => {
+            this.logger.error('Redis connection error:', error);
+            this.metrics.recordOperationError('redis_connection', error);
+        });
 
-            return connection;
+        this.axios.interceptors.response.use(
+            response => response,
+            error => this.handleAxiosError(error)
+        );
+    }
+
+    public async onboardPartner(partnerConfig: PartnerConfig): Promise<FederationPartner> {
+        try {
+            const validationResult = await this.validatePartnerConfig(partnerConfig);
+            if (!validationResult.valid) {
+                throw new Error(`Invalid partner configuration: ${validationResult.errors.join(', ')}`);
+            }
+
+            const metadataValidation = await this.metadataValidator.validateMetadata(
+                partnerConfig.metadata.url || ''
+            );
+            if (!metadataValidation.valid) {
+                throw new Error(`Invalid metadata: ${metadataValidation.errors.join(', ')}`);
+            }
+
+            const partner = await this.createPartnerConnection(partnerConfig);
+            await this.cachePartnerStatus(partner);
+
+            this.metrics.recordOperationMetrics('partner_onboarding', {
+                partnerId: partner.partnerId,
+                status: 'success'
+            });
+
+            return partner;
         } catch (error) {
-            this.logger.error('Error onboarding partner:', error);
-            throw error;
+            this.logger.error('Partner onboarding failed:', error);
+            this.metrics.recordOperationMetrics('partner_onboarding', {
+                partnerId: partnerConfig.partnerId,
+                status: 'failed',
+                error: error.message
+            });
+            throw this.createFederationError(error);
         }
+    }
+
+    private async validatePartnerConfig(config: PartnerConfig): Promise<ValidationResult> {
+        const errors: string[] = [];
+        const warnings: string[] = [];
+
+        const requiredFields = ['partnerId', 'partnerName', 'federationType', 'metadata'];
+        for (const field of requiredFields) {
+            if (!(field in config)) {
+                errors.push(`Missing required field: ${field}`);
+            }
+        }
+
+        if (config.federationType && !['SAML', 'OIDC'].includes(config.federationType)) {
+            errors.push('Invalid federation type. Must be either SAML or OIDC');
+        }
+
+        if (!config.metadata.url && !config.metadata.content) {
+            errors.push('Either metadata URL or content must be provided');
+        }
+
+        if (!config.attributeMapping || Object.keys(config.attributeMapping).length === 0) {
+            errors.push('Attribute mapping is required');
+        }
+
+        return {
+            valid: errors.length === 0,
+            errors,
+            warnings
+        };
+    }
+
+    private async createPartnerConnection(config: PartnerConfig): Promise<FederationPartner> {
+        try {
+            const response = await this.axios.post('/idp/partners', {
+                partnerId: config.partnerId,
+                partnerName: config.partnerName,
+                federationType: config.federationType,
+                metadata: config.metadata,
+                attributeMapping: config.attributeMapping,
+                status: 'ACTIVE',
+                createdAt: new Date(),
+                lastModified: new Date()
+            });
+
+            return response.data;
+        } catch (error) {
+            throw new Error(`Failed to create partner connection: ${error.message}`);
+        }
+    }
+
+    private async cachePartnerStatus(partner: FederationPartner): Promise<void> {
+        const key = `${this.PARTNER_STATUS_KEY}${partner.partnerId}`;
+        await this.redis.setex(key, this.CACHE_TTL, JSON.stringify({
+            status: partner.status,
+            lastChecked: new Date(),
+            metadata: partner.metadata
+        }));
+    }
+
+    private handleAxiosError(error: any): never {
+        const status = error.response?.status || 500;
+        const message = error.response?.data?.message || error.message;
+        
+        this.logger.error('HTTP request failed:', {
+            status,
+            message,
+            url: error.config?.url
+        });
+
+        throw this.createFederationError({
+            message,
+            status,
+            code: `FEDERATION_${status}`
+        });
+    }
+
+    private createFederationError(error: any): AuthError {
+        const federationError = new Error(error.message) as AuthError;
+        federationError.statusCode = error.status || 500;
+        federationError.code = error.code || 'FEDERATION_ERROR';
+        federationError.details = error.details || {};
+        return federationError;
     }
 
     async getPartner(partnerId: string): Promise<Partner | null> {
@@ -167,81 +314,6 @@ export class FederationPartnerService {
         }
     }
 
-    private async createPartnerConnection(config: PartnerConfig): Promise<any> {
-        const connectionConfig = this.buildConnectionConfig(config);
-        const response = await axios.post(
-            `${this.baseUrl}/idp/connections`,
-            connectionConfig,
-            this.getRequestConfig()
-        );
-        return response.data;
-    }
-
-    private async configureAttributeMapping(
-        connectionId: string,
-        mapping: any
-    ): Promise<void> {
-        await axios.put(
-            `${this.baseUrl}/idp/connections/${connectionId}/attributes`,
-            {
-                attributeContractFulfillment: this.buildAttributeMapping(mapping)
-            },
-            this.getRequestConfig()
-        );
-    }
-
-    private async enableConnection(connectionId: string): Promise<void> {
-        await axios.put(
-            `${this.baseUrl}/idp/connections/${connectionId}/status`,
-            {
-                status: 'ACTIVE'
-            },
-            this.getRequestConfig()
-        );
-    }
-
-    private buildConnectionConfig(config: PartnerConfig): any {
-        if (config.federationType === 'SAML') {
-            return {
-                type: 'SAML20',
-                name: config.partnerName,
-                entityId: `urn:${config.partnerId}`,
-                metadata: config.metadata,
-                credentials: {
-                    signingSettings: {
-                        signingKeyPairRef: {
-                            id: 'default'
-                        }
-                    }
-                },
-                contactInfo: config.contactInfo
-            };
-        } else {
-            return {
-                type: 'OIDC',
-                name: config.partnerName,
-                issuer: config.metadata.url,
-                authorizeEndpoint: `${config.metadata.url}/authorize`,
-                tokenEndpoint: `${config.metadata.url}/token`,
-                userInfoEndpoint: `${config.metadata.url}/userinfo`,
-                contactInfo: config.contactInfo
-            };
-        }
-    }
-
-    private buildAttributeMapping(mapping: any): any {
-        const attributeMapping: any = {};
-        for (const [key, value] of Object.entries(mapping)) {
-            attributeMapping[key] = {
-                source: {
-                    type: 'ASSERTION',
-                    attributeName: value
-                }
-            };
-        }
-        return attributeMapping;
-    }
-
     private getRequestConfig() {
         return {
             headers: {
@@ -252,4 +324,4 @@ export class FederationPartnerService {
     }
 }
 
-export default FederationPartnerService;
+export default FederationPartnerService.getInstance();

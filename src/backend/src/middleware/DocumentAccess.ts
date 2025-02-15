@@ -9,7 +9,8 @@ import {
     AuthError,
     NATODocument,
     UserAttributes,
-    ValidationResult
+    ValidationResult,
+    ClearanceLevel
 } from '../types';
 import { asAuthError } from './errorHandler';
 
@@ -26,16 +27,16 @@ export class DocumentAccessMiddleware {
     private readonly logger: LoggerService;
     private readonly metrics: MetricsService;
 
-    // Security policy enforcement configuration
+    // Security constants
     private readonly SECURITY_CONFIG = {
-        // Allow 5 minutes for classification changes to propagate
-        CLASSIFICATION_CHANGE_WINDOW: 300,
-        
-        // Trigger enhanced monitoring after this many failed attempts
-        MAX_FAILED_ATTEMPTS: 3,
-        
-        // Time window for counting failed attempts (1 hour)
-        FAILED_ATTEMPT_WINDOW: 3600
+        MAX_CLASSIFICATION_CHANGE_WINDOW: 300, // 5 minutes
+        SUSPICIOUS_ACCESS_THRESHOLD: 3,
+        MONITORING_WINDOW: 3600, // 1 hour
+        REQUIRED_SECURITY_HEADERS: [
+            'x-request-id',
+            'x-correlation-id',
+            'x-user-clearance'
+        ]
     };
 
     private constructor() {
@@ -63,11 +64,14 @@ export class DocumentAccessMiddleware {
         next: NextFunction
     ): Promise<void> => {
         const startTime = Date.now();
-        
+        const requestId = req.headers['x-request-id'] as string;
+
         try {
-            // Extract document ID from request
+            this.validateSecurityHeaders(req);
+
             const documentId = req.params.id || req.body.documentId;
-            
+            const action = this.determineRequestedAction(req);
+
             if (!documentId) {
                 throw this.createAccessError(
                     'Document ID is required',
@@ -76,7 +80,6 @@ export class DocumentAccessMiddleware {
                 );
             }
 
-            // Retrieve document with security metadata
             const document = await this.documentService.retrieveDocument(documentId);
             
             if (!document) {
@@ -87,26 +90,20 @@ export class DocumentAccessMiddleware {
                 );
             }
 
-            // Determine the requested action
-            const action = this.determineRequestedAction(req);
+            await this.validateUserAttributes(req.userAttributes);
 
-            // Validate user attributes
-            await this.opaService.validateAttributes(req.userAttributes);
-
-            // Evaluate access using NATO ABAC policy
-            const accessResult = await this.opaService.evaluateAccess(
-                req.userAttributes,
-                document.document,
-                //action
-            );
+            const accessResult = await this.opaService.evaluateAccess({
+                userAttributes: req.userAttributes,
+                document: document.document,
+                action
+            });
 
             if (!accessResult.allow) {
-                // Record access denial with security context
-                await this.recordAccessDenial(
-                    req.userAttributes.uniqueIdentifier,
+                await this.handleAccessDenial(
+                    req.userAttributes,
                     documentId,
-                    'read',
-                    accessResult.reason || 'Access denied by policy'
+                    action,
+                    accessResult.reason
                 );
 
                 throw this.createAccessError(
@@ -120,7 +117,6 @@ export class DocumentAccessMiddleware {
                 );
             }
 
-            // Record successful access attempt
             await this.recordAccessAttempt(
                 req.userAttributes.uniqueIdentifier,
                 documentId,
@@ -128,32 +124,30 @@ export class DocumentAccessMiddleware {
                 true
             );
 
-            // Attach validated document to request for downstream handlers
             req.document = document.document;
 
-            // Record access validation duration for performance monitoring
-            await this.metrics.recordOperationMetrics('access_validation', {
+            await this.metrics.recordOperationMetrics('document_access', {
                 duration: Date.now() - startTime,
                 documentId,
-                action
+                action,
+                clearance: document.document.clearance
             });
 
             next();
 
         } catch (error) {
             const accessError = this.createAccessError(
-                error instanceof Error ? error.message : 'Access validation failed',
-                error instanceof asAuthError ? 403 : 403,
-                error instanceof asAuthError ? 'ACCESS000' : 'ACCESS000'
+                error.message || 'Access validation failed',
+                error.statusCode || 403,
+                error.code || 'ACCESS000'
             );
 
-            // Log access denial with context
             this.logger.warn('Document access denied', {
                 error: accessError,
                 userId: req.userAttributes?.uniqueIdentifier,
                 documentId: req.params.id,
                 action: req.method,
-                requestId: req.headers['x-request-id']
+                requestId
             });
 
             res.status(accessError.statusCode).json({
@@ -233,20 +227,59 @@ export class DocumentAccessMiddleware {
         }
     };
 
+    private validateSecurityHeaders(req: AuthenticatedRequest): void {
+        const missingHeaders = this.SECURITY_CONFIG.REQUIRED_SECURITY_HEADERS
+            .filter(header => !req.headers[header]);
 
-    private async recordAccessDenial(userId: string, documentId: string, action: string, reason: string): Promise<void> {
-        // Minimal implementation to fix build
-        return Promise.resolve();
+        if (missingHeaders.length > 0) {
+            throw this.createAccessError(
+                'Missing required security headers',
+                400,
+                'ACCESS005',
+                { missingHeaders }
+            );
+        }
     }
-    
-    private async getRecentFailedAttempts(userId: string, documentId: string): Promise<number> {
-        // Minimal implementation to fix build  
-        return Promise.resolve(0);
+
+    private async validateUserAttributes(attributes: UserAttributes): Promise<void> {
+        const validation = await this.opaService.validateAttributes(attributes);
+        
+        if (!validation.valid) {
+            throw this.createAccessError(
+                'Invalid user security attributes',
+                401,
+                'ACCESS006',
+                { missingAttributes: validation.missingAttributes }
+            );
+        }
     }
-    /**
-     * Records access attempts and monitors for suspicious patterns.
-     * This helps detect potential security breaches or misuse attempts.
-     */
+
+    private async handleAccessDenial(
+        userAttributes: UserAttributes,
+        documentId: string,
+        action: string,
+        reason: string
+    ): Promise<void> {
+        await this.metrics.recordDocumentAccess(
+            userAttributes.clearance as ClearanceLevel,
+            false,
+            {
+                documentId,
+                action,
+                reason
+            }
+        );
+
+        const recentFailures = await this.getRecentFailedAttempts(
+            userAttributes.uniqueIdentifier,
+            documentId
+        );
+
+        if (recentFailures >= this.SECURITY_CONFIG.SUSPICIOUS_ACCESS_THRESHOLD) {
+            await this.handleSuspiciousActivity(userAttributes, documentId, recentFailures);
+        }
+    }
+
     private async recordAccessAttempt(
         userId: string,
         documentId: string,
@@ -272,7 +305,7 @@ export class DocumentAccessMiddleware {
                     documentId
                 );
 
-                if (recentFailures >= this.SECURITY_CONFIG.MAX_FAILED_ATTEMPTS) {
+                if (recentFailures >= this.SECURITY_CONFIG.SUSPICIOUS_ACCESS_THRESHOLD) {
                     this.logger.warn('Suspicious access pattern detected', {
                         userId,
                         documentId,
@@ -361,215 +394,215 @@ export class DocumentAccessMiddleware {
         return { hasChanges, changes };
     }
 
-/**
+    /**
      * Validates that security changes comply with NATO policies and user clearance.
      * This method ensures that security classifications can only be modified by
      * users with appropriate authority and within policy guidelines.
      */
-private async validateSecurityChanges(
-    userAttributes: UserAttributes,
-    currentDocument: NATODocument,
-    changes: Record<string, any>
-): Promise<ValidationResult> {
-    const errors: string[] = [];
-    const warnings: string[] = [];
+    private async validateSecurityChanges(
+        userAttributes: UserAttributes,
+        currentDocument: NATODocument,
+        changes: Record<string, any>
+    ): Promise<ValidationResult> {
+        const errors: string[] = [];
+        const warnings: string[] = [];
 
-    try {
-        // Validate clearance level changes
-        if (changes.clearance) {
-            const canModifyClearance = await this.opaService.evaluateClearanceModification(
-                userAttributes,
-                changes.clearance.from,
-                changes.clearance.to
-            );
-
-            if (!canModifyClearance.allow) {
-                errors.push(
-                    `Insufficient clearance to modify document classification from ` +
-                    `${changes.clearance.from} to ${changes.clearance.to}`
-                );
-            }
-
-            // Check for classification downgrade attempts
-            if (this.getSecurityLevel(changes.clearance.to) < 
-                this.getSecurityLevel(changes.clearance.from)) {
-                errors.push('Security classification cannot be downgraded');
-            }
-        }
-
-        // Validate releasability marker changes
-        if (changes.releasableTo) {
-            const { addedMarkers, removedMarkers } = changes.releasableTo;
-
-            // Validate additions
-            for (const marker of addedMarkers) {
-                if (!this.isValidReleasabilityMarker(marker)) {
-                    errors.push(`Invalid releasability marker: ${marker}`);
-                    continue;
-                }
-
-                const canAddMarker = await this.opaService.evaluateReleasabilityModification(
+        try {
+            // Validate clearance level changes
+            if (changes.clearance) {
+                const canModifyClearance = await this.opaService.evaluateClearanceModification(
                     userAttributes,
-                    marker
+                    changes.clearance.from,
+                    changes.clearance.to
                 );
 
-                if (!canAddMarker.allow) {
-                    errors.push(`Unauthorized to add releasability marker: ${marker}`);
+                if (!canModifyClearance.allow) {
+                    errors.push(
+                        `Insufficient clearance to modify document classification from ` +
+                        `${changes.clearance.from} to ${changes.clearance.to}`
+                    );
+                }
+
+                // Check for classification downgrade attempts
+                if (this.getSecurityLevel(changes.clearance.to) < 
+                    this.getSecurityLevel(changes.clearance.from)) {
+                    errors.push('Security classification cannot be downgraded');
                 }
             }
 
-            // Validate removals
-            for (const marker of removedMarkers) {
-                const canRemoveMarker = await this.opaService.evaluateReleasabilityModification(
-                    userAttributes,
-                    marker
-                );
+            // Validate releasability marker changes
+            if (changes.releasableTo) {
+                const { addedMarkers, removedMarkers } = changes.releasableTo;
 
-                if (!canRemoveMarker.allow) {
-                    errors.push(`Unauthorized to remove releasability marker: ${marker}`);
+                // Validate additions
+                for (const marker of addedMarkers) {
+                    if (!this.isValidReleasabilityMarker(marker)) {
+                        errors.push(`Invalid releasability marker: ${marker}`);
+                        continue;
+                    }
+
+                    const canAddMarker = await this.opaService.evaluateReleasabilityModification(
+                        userAttributes,
+                        marker
+                    );
+
+                    if (!canAddMarker.allow) {
+                        errors.push(`Unauthorized to add releasability marker: ${marker}`);
+                    }
+                }
+
+                // Validate removals
+                for (const marker of removedMarkers) {
+                    const canRemoveMarker = await this.opaService.evaluateReleasabilityModification(
+                        userAttributes,
+                        marker
+                    );
+
+                    if (!canRemoveMarker.allow) {
+                        errors.push(`Unauthorized to remove releasability marker: ${marker}`);
+                    }
+                }
+
+                // Ensure at least one releasability marker remains
+                if (currentDocument.releasableTo.length - removedMarkers.length + 
+                    addedMarkers.length === 0) {
+                    errors.push('Document must maintain at least one releasability marker');
                 }
             }
 
-            // Ensure at least one releasability marker remains
-            if (currentDocument.releasableTo.length - removedMarkers.length + 
-                addedMarkers.length === 0) {
-                errors.push('Document must maintain at least one releasability marker');
+            // Validate COI tag changes
+            if (changes.coiTags) {
+                const { addedTags, removedTags } = changes.coiTags;
+
+                // Validate user has all required COI memberships
+                for (const tag of addedTags) {
+                    if (!userAttributes.coiTags?.includes(tag)) {
+                        errors.push(`User lacks required COI membership: ${tag}`);
+                    }
+                }
+
+                // Check for required COI tags based on document classification
+                const requiredTags = this.getRequiredCoiTags(currentDocument.clearance);
+                for (const tag of removedTags) {
+                    if (requiredTags.includes(tag)) {
+                        errors.push(`Cannot remove required COI tag: ${tag}`);
+                    }
+                }
             }
+
+            // Validate LACV code changes
+            if (changes.lacvCode) {
+                const { from, to } = changes.lacvCode;
+
+                // Only users with matching LACV code or COSMIC TOP SECRET can modify
+                if (to && 
+                    userAttributes.clearance !== 'COSMIC TOP SECRET' && 
+                    userAttributes.lacvCode !== to) {
+                    errors.push('Insufficient privileges to modify LACV code');
+                }
+
+                // Validate LACV code format
+                if (to && !this.isValidLacvCode(to)) {
+                    errors.push(`Invalid LACV code format: ${to}`);
+                }
+            }
+
+            return {
+                valid: errors.length === 0,
+                errors,
+                warnings
+            };
+
+        } catch (error) {
+            this.logger.error('Error validating security changes:', error);
+            errors.push('Security validation system error');
+            return { valid: false, errors, warnings };
         }
+    }
 
-        // Validate COI tag changes
-        if (changes.coiTags) {
-            const { addedTags, removedTags } = changes.coiTags;
-
-            // Validate user has all required COI memberships
-            for (const tag of addedTags) {
-                if (!userAttributes.coiTags?.includes(tag)) {
-                    errors.push(`User lacks required COI membership: ${tag}`);
-                }
-            }
-
-            // Check for required COI tags based on document classification
-            const requiredTags = this.getRequiredCoiTags(currentDocument.clearance);
-            for (const tag of removedTags) {
-                if (requiredTags.includes(tag)) {
-                    errors.push(`Cannot remove required COI tag: ${tag}`);
-                }
-            }
-        }
-
-        // Validate LACV code changes
-        if (changes.lacvCode) {
-            const { from, to } = changes.lacvCode;
-
-            // Only users with matching LACV code or COSMIC TOP SECRET can modify
-            if (to && 
-                userAttributes.clearance !== 'COSMIC TOP SECRET' && 
-                userAttributes.lacvCode !== to) {
-                errors.push('Insufficient privileges to modify LACV code');
-            }
-
-            // Validate LACV code format
-            if (to && !this.isValidLacvCode(to)) {
-                errors.push(`Invalid LACV code format: ${to}`);
-            }
-        }
-
-        return {
-            valid: errors.length === 0,
-            errors,
-            warnings
+    /**
+     * Determines numeric security level for classification comparisons.
+     * This hierarchy follows NATO security classification standards.
+     */
+    public getSecurityLevel(clearance: string): number {
+        const levels: Record<string, number> = {
+            'UNCLASSIFIED': 0,
+            'RESTRICTED': 1,
+            'NATO CONFIDENTIAL': 2,
+            'NATO SECRET': 3,
+            'COSMIC TOP SECRET': 4
         };
-
-    } catch (error) {
-        this.logger.error('Error validating security changes:', error);
-        errors.push('Security validation system error');
-        return { valid: false, errors, warnings };
+        return levels[clearance] || 0;
     }
-}
 
-/**
- * Determines numeric security level for classification comparisons.
- * This hierarchy follows NATO security classification standards.
- */
-public getSecurityLevel(clearance: string): number {
-    const levels: Record<string, number> = {
-        'UNCLASSIFIED': 0,
-        'RESTRICTED': 1,
-        'NATO CONFIDENTIAL': 2,
-        'NATO SECRET': 3,
-        'COSMIC TOP SECRET': 4
-    };
-    return levels[clearance] || 0;
-}
-
-/**
- * Gets required COI tags based on document classification level.
- * Some classifications mandate specific Communities of Interest.
- */
-private getRequiredCoiTags(clearance: string): string[] {
-    // Map classification levels to required COI tags
-    const requiredTags: Record<string, string[]> = {
-        'NATO SECRET': ['OpAlpha', 'OpBravo'],
-        'COSMIC TOP SECRET': ['OpAlpha', 'OpBravo', 'OpGamma']
-    };
-    return requiredTags[clearance] || [];
-}
-
-/**
- * Validates releasability marker format according to NATO standards.
- */
-private isValidReleasabilityMarker(marker: string): boolean {
-    const validMarkers = [
-        'NATO',
-        'EU',
-        'FVEY',
-        'PARTNERX'
-        // Add other valid markers as needed
-    ];
-    return validMarkers.includes(marker);
-}
-
-/**
- * Validates LACV code format according to NATO standards.
- */
-private isValidLacvCode(code: string): boolean {
-    // LACV codes follow the pattern LACVnnn where nnn is a 3-digit number
-    const validCodes = [
-        'LACV001',
-        'LACV002',
-        'LACV003',
-        'LACV004'
-    ];
-    return validCodes.includes(code);
-}
-
-/**
- * Creates standardized access error objects with security context.
- */
-private createAccessError(
-    message: string,
-    statusCode: number,
-    code: string,
-    details?: Record<string, unknown>
-): AuthError {
-    const error = new Error(message) as AuthError;
-    error.statusCode = statusCode;
-    error.code = code;
-    if (details) {
-        error.details = details;
+    /**
+     * Gets required COI tags based on document classification level.
+     * Some classifications mandate specific Communities of Interest.
+     */
+    private getRequiredCoiTags(clearance: string): string[] {
+        // Map classification levels to required COI tags
+        const requiredTags: Record<string, string[]> = {
+            'NATO SECRET': ['OpAlpha', 'OpBravo'],
+            'COSMIC TOP SECRET': ['OpAlpha', 'OpBravo', 'OpGamma']
+        };
+        return requiredTags[clearance] || [];
     }
-    return error;
-}
 
-private determineRequestedAction(req: AuthenticatedRequest): string {
-    const methodMap: Record<string, string> = {
-        'GET': 'read',
-        'POST': 'create',
-        'PUT': 'update',
-        'DELETE': 'delete'
-    };
-    return methodMap[req.method] || 'unknown';
-}
+    /**
+     * Validates releasability marker format according to NATO standards.
+     */
+    private isValidReleasabilityMarker(marker: string): boolean {
+        const validMarkers = [
+            'NATO',
+            'EU',
+            'FVEY',
+            'PARTNERX'
+            // Add other valid markers as needed
+        ];
+        return validMarkers.includes(marker);
+    }
+
+    /**
+     * Validates LACV code format according to NATO standards.
+     */
+    private isValidLacvCode(code: string): boolean {
+        // LACV codes follow the pattern LACVnnn where nnn is a 3-digit number
+        const validCodes = [
+            'LACV001',
+            'LACV002',
+            'LACV003',
+            'LACV004'
+        ];
+        return validCodes.includes(code);
+    }
+
+    /**
+     * Creates standardized access error objects with security context.
+     */
+    private createAccessError(
+        message: string,
+        statusCode: number,
+        code: string,
+        details?: Record<string, unknown>
+    ): AuthError {
+        const error = new Error(message) as AuthError;
+        error.statusCode = statusCode;
+        error.code = code;
+        if (details) {
+            error.details = details;
+        }
+        return error;
+    }
+
+    private determineRequestedAction(req: AuthenticatedRequest): string {
+        const methodMap: Record<string, string> = {
+            'GET': 'read',
+            'POST': 'create',
+            'PUT': 'update',
+            'DELETE': 'delete'
+        };
+        return methodMap[req.method] || 'unknown';
+    }
 }
 
 export default DocumentAccessMiddleware.getInstance();
