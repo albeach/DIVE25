@@ -158,7 +158,8 @@ deploy_production() {
     
     # Prompt to optionally skip Let's Encrypt certificate generation
     read -p "Do you want to skip Let's Encrypt certificate generation? (y/N): " skip_cert_input
-    if [[ "${skip_cert_input,,}" == "y" ]]; then
+    skip_cert_input_lower=$(echo "$skip_cert_input" | tr '[:upper:]' '[:lower:]')
+    if [[ "$skip_cert_input_lower" == "y" ]]; then
          log "INFO" "Skipping Let's Encrypt certificate generation as per user request."
          export SKIP_LETSENCRYPT=true
     else

@@ -125,16 +125,15 @@ user_has_mandatory_attrs if {
 
 missing_attrs = [
   attr |
-  required_user_attrs[_] == attr
+  attr := required_user_attrs[_];
   attr_missing(attr)
 ]
 
 attr_missing(attr) if {
-  not attr in {k | k := input.user[_]}
+  input.user[attr] == null
 }
 
 attr_missing(attr) if {
-  attr in {k | k := input.user[_]}
   input.user[attr] == ""
 }
 
@@ -142,7 +141,7 @@ attr_missing(attr) if {
 # 5. Clearance Verification
 ###############################################################################
 user_clearance_ok if {
-  clearance_order[input.user.clearance] >= clearance_order[input.resource.clearance]
+  clearance[input.user.clearance] >= clearance[input.resource.clearance]
 }
 
 ###############################################################################
@@ -163,7 +162,7 @@ user_has_access_label(label) if {
   eu_nations[input.user.countryOfAffiliation]
 }
 
-user_has_access_label[label] if {
+user_has_access_label(label) if {
   label == "FVEY"
   fvey_nations[input.user.countryOfAffiliation]
 }
@@ -220,10 +219,12 @@ optional_lacv_ok if {
 ###############################################################################
 # 9. Helper Functions
 ###############################################################################
-is_array(x) = true {
-  count(x) >= 0
+# is_array returns true if x equals the array constructed from its
+# elements; this distinguishes arrays from objects.
+is_array(x) = true if {
+    x == [ v | v := x[_] ]
 }
 
-is_array(x) = false {
-  not count(x)
+is_array(x) = false if {
+    not x == [ v | v := x[_] ]
 }

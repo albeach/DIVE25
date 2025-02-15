@@ -125,17 +125,15 @@ user_has_mandatory_attrs if {
 
 missing_attrs = [
   attr |
-  some i
-  required_user_attrs[i] == attr;
+  attr := required_user_attrs[_];
   attr_missing(attr)
 ]
 
 attr_missing(attr) if {
-  not attr in {k | k := input.user[_]}
+  input.user[attr] == null
 }
 
 attr_missing(attr) if {
-  attr in {k | k := input.user[_]}
   input.user[attr] == ""
 }
 
@@ -221,10 +219,12 @@ optional_lacv_ok if {
 ###############################################################################
 # 9. Helper Functions
 ###############################################################################
+# is_array returns true if x equals the array constructed from its
+# elements; this distinguishes arrays from objects.
 is_array(x) = true if {
-  count(x) >= 0
+    x == [ v | v := x[_] ]
 }
 
 is_array(x) = false if {
-  not count(x)
+    not x == [ v | v := x[_] ]
 }
