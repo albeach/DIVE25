@@ -61,9 +61,6 @@ deploy_docker_containers() {
 
     # Create .env file for Docker Compose with proper permissions
     cat << EOL > "${SCRIPT_DIR}/.env"
-PING_IDENTITY_DEVOPS_USER=${PING_IDENTITY_DEVOPS_USER}
-PING_IDENTITY_DEVOPS_KEY=${PING_IDENTITY_DEVOPS_KEY}
-PA_ADMIN_PASSWORD_INITIAL=
 COMPOSE_PROJECT_NAME=dive25
 EOL
     chmod 600 "${SCRIPT_DIR}/.env"

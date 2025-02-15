@@ -57,8 +57,6 @@ cp .env.example .env
 ```
 Edit `.env` and update the required values:
 ```
-PING_IDENTITY_DEVOPS_USER=your_username
-PING_IDENTITY_DEVOPS_KEY=your_key
 WP_DB_PASSWORD=your_database_password
 MONGO_URI=mongodb://mongodb:27017/dive25
 OPA_URL=http://opa:8181

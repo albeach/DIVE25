@@ -25,7 +25,6 @@ services:
   pingaccess:
     image: pingidentity/pingaccess:8.2.0-latest
     environment:
-      <<: *common-variables
       PA_ADMIN_PASSWORD_INITIAL: "2FederateM0re"
     volumes:
       - ./licenses:/opt/in/instance/conf
@@ -47,7 +46,6 @@ services:
   pingdirectory:
     image: pingidentity/pingdirectory:10.2.0.0-latest
     environment:
-      <<: *common-variables
       PD_ADMIN_USER_PASSWORD: "2FederateM0re"
     volumes:
       - ./licenses:/opt/in/pd.profile/server-root/pre-setup

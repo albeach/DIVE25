@@ -41,7 +41,6 @@ services:
       - .env
     environment:
       - PA_LOG_LEVEL=INFO
-      - PA_ADMIN_PASSWORD_INITIAL=${PA_ADMIN_PASSWORD_INITIAL}
       - PING_IDENTITY_PASSWORD=${PING_IDENTITY_PASSWORD}
     ports:
       - "3000:3000"    # Runtime port
