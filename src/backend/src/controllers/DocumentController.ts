@@ -161,6 +161,22 @@ export class DocumentController {
                 })
             );
 
+            // Add NATO-specific security filter
+            const securityFilter = {
+                clearance: { $lte: req.userAttributes.clearance },
+                releasableTo: { 
+                    $elemMatch: { 
+                        $in: [req.userAttributes.countryOfAffiliation, 'NATO'] 
+                    }
+                }
+            };
+        
+            // Merge security filter with user query
+            const finalQuery = {
+                ...searchQuery,
+                ...securityFilter
+            };
+
             const filteredDocuments = accessibleDocuments.filter((doc: NATODocument | null): doc is NATODocument => doc !== null);
 
             // Get total count for pagination
@@ -176,6 +192,14 @@ export class DocumentController {
                 resultCount: filteredDocuments.length,
                 totalCount,
                 duration: Date.now() - startTime
+            });
+
+            // Add audit logging
+            this.logger.info('Document search initiated', {
+                userId: req.userAttributes.uniqueIdentifier,
+                clearance: req.userAttributes.clearance,
+                searchCriteria: searchQuery,
+                timestamp: new Date()
             });
 
             res.json({
@@ -331,6 +355,44 @@ export class DocumentController {
         }
     }
 
+    private async validateDocumentUpdate(
+        currentDoc: NATODocument,
+        updates: Partial<NATODocument>,
+        userAttributes: UserAttributes
+    ): Promise<ValidationResult> {
+        const errors: string[] = [];
+    
+        // Check for classification downgrade attempts
+        if (updates.clearance && 
+            this.getSecurityLevel(updates.clearance) < 
+            this.getSecurityLevel(currentDoc.clearance)) {
+            errors.push('Document classification cannot be downgraded');
+        }
+    
+        // Validate LACV code modifications
+        if (updates.lacvCode && 
+            updates.lacvCode !== currentDoc.lacvCode && 
+            userAttributes.clearance !== 'COSMIC TOP SECRET') {
+            errors.push('LACV code modification requires COSMIC TOP SECRET clearance');
+        }
+    
+        // Check releasability marker modifications
+        if (updates.releasableTo) {
+            const removedMarkers = currentDoc.releasableTo.filter(
+                marker => !updates.releasableTo?.includes(marker)
+            );
+            if (removedMarkers.includes('NATO')) {
+                errors.push('Cannot remove NATO releasability marker');
+            }
+        }
+    
+        return {
+            valid: errors.length === 0,
+            errors,
+            warnings: []
+        };
+    }
+    
     public async deleteDocument(id: string, userAttributes: UserAttributes): Promise<boolean> {
         try {
             const document = await this.db.getDocument(id);

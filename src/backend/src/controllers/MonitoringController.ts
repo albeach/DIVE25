@@ -189,41 +189,53 @@ export class MonitoringController {
      * Retrieves system-wide metrics including performance, security, and operational data.
      * Metrics are aggregated and formatted according to NATO standards.
      */
-    public async getSystemMetrics(
+    public async getSystemSecurityMetrics(
         req: AuthenticatedRequest,
         res: Response
     ): Promise<void> {
         const startTime = Date.now();
-
+    
         try {
-            // Collect metrics from various subsystems
+            // Gather security metrics from various services
             const [
-                performanceMetrics,
-                securityMetrics,
+                storageMetrics,
+                securityEvents,
                 federationMetrics
             ] = await Promise.all([
-                this.collectPerformanceMetrics(),
-                this.collectSecurityMetrics('system'),
-                this.collectFederationMetrics()
+                this.documentService.getStorageMetrics(),
+                this.metrics.getSecurityEvents(Date.now() - 86400000), // Last 24 hours
+                this.monitoringService.getFederationMetrics()
             ]);
-
+    
             // Aggregate metrics
             const aggregatedMetrics = {
-                performance: performanceMetrics,
-                security: securityMetrics,
-                federation: federationMetrics,
-                timestamp: new Date(),
-                environment: config.env
+                storage: {
+                    classificationDistribution: Object.fromEntries(
+                        storageMetrics.contentSizeByClassification
+                    ),
+                    encryptionHealth: storageMetrics.encryptionStats
+                },
+                security: {
+                    clearanceViolations: securityEvents.clearanceViolations,
+                    coiAccessAttempts: securityEvents.coiAccessAttempts,
+                    suspiciousActivities: securityEvents.suspiciousActivities
+                },
+                federation: {
+                    activePartners: federationMetrics.activePartners,
+                    failedAuthentications: federationMetrics.failedAuthentications,
+                    sessionHealth: federationMetrics.sessionHealth
+                },
+                timestamp: new Date()
             };
-
+    
             // Record metric access
-            this.metricsService.recordHttpRequest(
+            this.metrics.recordHttpRequest(
                 req.method,
                 req.path,
                 200,
                 Date.now() - startTime
             );
-
+    
             const response: ApiResponse<typeof aggregatedMetrics> = {
                 success: true,
                 data: aggregatedMetrics,
@@ -232,26 +244,26 @@ export class MonitoringController {
                     requestId: req.headers['x-request-id'] as string
                 }
             };
-
+    
             res.json(response);
-
+    
         } catch (error) {
             const monitoringError = asAuthError(error);
             
-            this.logger.error('Error fetching system metrics', {
+            this.logger.error('Error fetching security metrics:', {
                 error: monitoringError,
-                userId: req.userAttributes.uniqueIdentifier
+                userId: req.userAttributes?.uniqueIdentifier
             });
-
+    
             const response: ApiResponse<null> = {
                 success: false,
                 error: {
-                    code: monitoringError.code || 'MON003',
-                    message: monitoringError.message || 'Failed to fetch system metrics',
+                    code: monitoringError.code || 'MON007',
+                    message: monitoringError.message || 'Failed to fetch security metrics',
                     details: monitoringError.details
                 }
             };
-
+    
             res.status(monitoringError.statusCode || 500).json(response);
         }
     }

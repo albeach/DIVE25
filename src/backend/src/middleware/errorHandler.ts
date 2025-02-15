@@ -89,16 +89,46 @@ export const validationErrorHandler = (
     next(error);
 };
 
+export class SecurityViolationError extends Error {
+    constructor(
+        message: string,
+        public readonly violation: string,
+        public readonly securityContext: Record<string, any>
+    ) {
+        super(message);
+        this.name = 'SecurityViolationError';
+    }
+}
+
 export const securityErrorHandler = (
     error: Error,
     req: Request,
     res: Response,
     next: NextFunction
 ): void => {
-    if (error.name === 'SecurityError') {
-        const typedError = error as AuthError;
-        typedError.statusCode = 403;
-        typedError.code = 'SECURITY_ERROR';
+    if (error instanceof SecurityViolationError) {
+        // Log security violation
+        LoggerService.getInstance().error('Security violation detected', {
+            violation: error.violation,
+            context: error.securityContext,
+            userId: (req as AuthenticatedRequest).userAttributes?.uniqueIdentifier,
+            timestamp: new Date()
+        });
+
+        // Alert monitoring system
+        MetricsService.getInstance().recordSecurityEvent('security_violation', {
+            type: error.violation,
+            userId: (req as AuthenticatedRequest).userAttributes?.uniqueIdentifier,
+            resourceId: req.params.id,
+            timestamp: new Date()
+        });
+
+        res.status(403).json({
+            error: 'Security violation detected',
+            code: 'SEC_VIOLATION',
+            message: error.message
+        });
+        return;
     }
     next(error);
 };

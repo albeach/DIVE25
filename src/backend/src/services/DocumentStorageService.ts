@@ -19,6 +19,13 @@ import { ClearanceLevel } from '../types';
  * Implements encrypted storage, content validation, and security classification
  * enforcement for document contents.
  */
+
+interface RetentionPolicy {
+    clearanceLevel: ClearanceLevel;
+    retentionPeriod: number; // in days
+    archivalRequired: boolean;
+}
+
 export class DocumentStorageService {
     private static instance: DocumentStorageService;
     private readonly db: DatabaseService;
@@ -43,6 +50,34 @@ export class DocumentStorageService {
         CHUNK_SIZE: 5 * 1024 * 1024 // 5MB for streaming
     };
 
+    private readonly STORAGE_METRICS = {
+        contentSizeByClassification: new Map<ClearanceLevel, number>(),
+        totalDocuments: 0,
+        encryptionOperations: {
+            success: 0,
+            failures: 0,
+            averageTime: 0
+        }
+    };
+
+    private readonly RETENTION_POLICIES: RetentionPolicy[] = [
+        {
+            clearanceLevel: 'COSMIC TOP SECRET',
+            retentionPeriod: 3650, // 10 years
+            archivalRequired: true
+        },
+        {
+            clearanceLevel: 'NATO SECRET',
+            retentionPeriod: 1825, // 5 years
+            archivalRequired: true
+        },
+        {
+            clearanceLevel: 'NATO CONFIDENTIAL',
+            retentionPeriod: 730, // 2 years
+            archivalRequired: true
+        }
+    ];
+    
     private constructor() {
         this.db = DatabaseService.getInstance();
         this.logger = LoggerService.getInstance();
@@ -250,6 +285,36 @@ export class DocumentStorageService {
             this.logger.error('Document content update failed:', error);
             throw this.createStorageError(error, 'Failed to update document content');
         }
+    }
+
+
+    public async enforceRetentionPolicy(document: NATODocument): Promise<void> {
+        const policy = this.getRetentionPolicy(document.clearance);
+        const documentAge = this.calculateDocumentAge(document);
+    
+        if (documentAge >= policy.retentionPeriod) {
+            if (policy.archivalRequired) {
+                await this.archiveDocument(document);
+            }
+            await this.markDocumentForDeletion(document);
+            
+            this.logger.info('Document marked for deletion per retention policy', {
+                documentId: document._id,
+                clearance: document.clearance,
+                age: documentAge,
+                policy: policy
+            });
+        }
+    }
+    
+    private async markDocumentForDeletion(document: NATODocument): Promise<void> {
+        await this.db.updateDocument(document._id as string, {
+            metadata: {
+                ...document.metadata,
+                retentionExpiryDate: new Date(),
+                scheduledForDeletion: true
+            }
+        });
     }
 
     /**
@@ -479,6 +544,47 @@ export class DocumentStorageService {
         // Implementation would depend on your storage backend
         // Could be file system, object storage, etc.
     }
+
+    public async getStorageMetrics(): Promise<{
+        contentSizeByClassification: Map<ClearanceLevel, number>;
+        totalDocuments: number;
+        encryptionStats: typeof DocumentStorageService.prototype.STORAGE_METRICS.encryptionOperations;
+    }> {
+        try {
+            // Update metrics from database
+            const documents = await this.db.collection('documents').aggregate([
+                {
+                    $group: {
+                        _id: "$clearance",
+                        totalSize: { $sum: "$content.size" },
+                        count: { $sum: 1 }
+                    }
+                }
+            ]).toArray();
+    
+            documents.forEach(doc => {
+                this.STORAGE_METRICS.contentSizeByClassification.set(
+                    doc._id as ClearanceLevel,
+                    doc.totalSize
+                );
+            });
+    
+            this.STORAGE_METRICS.totalDocuments = documents.reduce(
+                (sum, doc) => sum + doc.count, 0
+            );
+    
+            return {
+                contentSizeByClassification: this.STORAGE_METRICS.contentSizeByClassification,
+                totalDocuments: this.STORAGE_METRICS.totalDocuments,
+                encryptionStats: this.STORAGE_METRICS.encryptionOperations
+            };
+        } catch (error) {
+            this.logger.error('Error getting storage metrics:', error);
+            throw this.createStorageError(error, 'Failed to retrieve storage metrics');
+        }
+    }
+    
+
 }
 
 export default DocumentStorageService.getInstance();

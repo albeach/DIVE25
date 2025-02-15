@@ -48,6 +48,25 @@ export class MetricsService {
         MONTHLY: 86400 * 365  // 1 year for monthly aggregates
     };
 
+    private readonly SECURITY_METRICS = {
+        clearanceViolations: new prometheus.Counter({
+            name: 'security_clearance_violations_total',
+            help: 'Total number of clearance level access violations'
+        }),
+        
+        coiAccessAttempts: new prometheus.Counter({
+            name: 'coi_access_attempts_total',
+            help: 'Total number of COI-restricted access attempts',
+            labelNames: ['coi', 'success']
+        }),
+    
+        documentModifications: new prometheus.Counter({
+            name: 'document_modifications_total',
+            help: 'Total number of document modifications',
+            labelNames: ['classification', 'operation']
+        })
+    };
+
     private constructor() {
         this.logger = LoggerService.getInstance();
         this.redis = new Redis(config.redis);
@@ -199,12 +218,39 @@ export class MetricsService {
      */
 
     public async recordSecurityEvent(
-        eventType: string,
-        details: Record<string, any>
+        eventType: 'clearance_violation' | 'coi_access' | 'document_modification',
+        details: {
+            clearance?: ClearanceLevel;
+            coi?: string;
+            operation?: string;
+            success?: boolean;
+        }
     ): Promise<void> {
         try {
-            await this.recordMetric('security_event', {
-                type: eventType,
+            switch (eventType) {
+                case 'clearance_violation':
+                    this.SECURITY_METRICS.clearanceViolations.inc();
+                    break;
+                case 'coi_access':
+                    if (details.coi) {
+                        this.SECURITY_METRICS.coiAccessAttempts.inc({
+                            coi: details.coi,
+                            success: details.success?.toString() || 'false'
+                        });
+                    }
+                    break;
+                case 'document_modification':
+                    if (details.clearance && details.operation) {
+                        this.SECURITY_METRICS.documentModifications.inc({
+                            classification: details.clearance,
+                            operation: details.operation
+                        });
+                    }
+                    break;
+            }
+    
+            // Record to persistent storage for historical analysis
+            await this.recordMetric(`security_${eventType}`, {
                 ...details,
                 timestamp: new Date()
             });

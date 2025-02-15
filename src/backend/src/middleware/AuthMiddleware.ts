@@ -14,6 +14,21 @@ import {
 import { asAuthError } from './errorHandler';
 import { config } from '../config/config';
 
+export interface Role {
+    name: string;
+    permissions: Permission[];
+    clearanceRequired: ClearanceLevel;
+}
+
+export interface Permission {
+    action: 'read' | 'write' | 'delete' | 'classify';
+    resource: 'document' | 'partner' | 'audit';
+    constraints?: {
+        maxClearanceLevel?: ClearanceLevel;
+        requiredCoiTags?: string[];
+    };
+}
+
 export class AuthMiddleware {
     private static instance: AuthMiddleware;
     private readonly pingFedService: PingFederateService;
