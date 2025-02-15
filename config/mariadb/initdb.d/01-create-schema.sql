@@ -2,7 +2,7 @@
 
 -- Create NATO security metadata tables
 CREATE TABLE IF NOT EXISTS wp_nato_security_metadata (
-    post_id BIGINT UNSIGNED NOT NULL,
+    post_id BIGINT(20) UNSIGNED NOT NULL,
     classification VARCHAR(50) NOT NULL,
     releasability TEXT,
     coi_tags TEXT,
