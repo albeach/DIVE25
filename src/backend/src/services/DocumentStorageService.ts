@@ -3,8 +3,8 @@ import { DatabaseService } from './DatabaseService';
 import { LoggerService } from './LoggerService';
 import { MetricsService } from './MetricsService';
 import { OPAService } from './OPAService';
-import { 
-    NATODocument, 
+import {
+    NATODocument,
     DocumentContent,
     DocumentMetadata,
     ValidationResult,
@@ -21,11 +21,11 @@ import * as crypto from 'crypto';
  */
 export class DocumentStorageService {
     private static instance: DocumentStorageService;
+    private collection: Collection<NATODocument>;
     private readonly db: DatabaseService;
     private readonly logger: LoggerService;
     private readonly metrics: MetricsService;
     private readonly opa: OPAService;
-    private readonly collection: Collection<NATODocument>;
 
     // Storage configuration
     private readonly STORAGE_CONFIG = {
@@ -62,19 +62,17 @@ export class DocumentStorageService {
      */
     private async initializeStorage(): Promise<void> {
         try {
-            // Initialize MongoDB collection
-            this.collection = await this.db.getCollection<NATODocument>('documents');
+            // Get collection from database service
+            const db = await this.db.getDb();
+            this.collection = db.collection<NATODocument>('documents');
 
             // Validate encryption configuration
             if (!config.storage.encryptionKey) {
                 throw new Error('Storage encryption key not configured');
             }
 
-            // Create storage-specific indexes
             await this.createStorageIndexes();
-
             this.logger.info('Document storage system initialized');
-
         } catch (error) {
             this.logger.error('Failed to initialize document storage:', error);
             throw new Error('Storage initialization failed');
@@ -271,7 +269,7 @@ export class DocumentStorageService {
         }
 
         // Validate MIME type
-        if (metadata.mimeType && 
+        if (metadata.mimeType &&
             !this.STORAGE_CONFIG.ALLOWED_MIME_TYPES.includes(metadata.mimeType)) {
             errors.push('Invalid document type');
         }
@@ -314,9 +312,10 @@ export class DocumentStorageService {
         const cipher = crypto.createCipheriv(
             this.STORAGE_CONFIG.ENCRYPTION.ALGORITHM,
             key,
-            iv,
-            { authTagLength: this.STORAGE_CONFIG.ENCRYPTION.AUTH_TAG_LENGTH }
+            iv
         ) as crypto.CipherGCM;
+
+        cipher.setAAD(Buffer.from('authenticated'));
 
         const encrypted = Buffer.concat([
             cipher.update(content),
@@ -334,10 +333,10 @@ export class DocumentStorageService {
      * Decrypts document content and validates integrity.
      */
     private async decryptContent(
-        encryptedData: { 
-            encrypted: Buffer; 
-            iv: Buffer; 
-            authTag: Buffer; 
+        encryptedData: {
+            encrypted: Buffer;
+            iv: Buffer;
+            authTag: Buffer;
         }
     ): Promise<Buffer> {
         const decipher = crypto.createDecipheriv(

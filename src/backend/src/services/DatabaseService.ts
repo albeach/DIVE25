@@ -1,7 +1,7 @@
 import { Collection, Db, MongoClient, ObjectId, WithId } from 'mongodb';
 import { LoggerService } from './LoggerService';
 import { MetricsService } from './MetricsService';
-import { 
+import {
     NATODocument,
     DocumentSearchQuery,
     PaginationOptions,
@@ -36,7 +36,7 @@ export class DatabaseService {
     private constructor() {
         this.logger = LoggerService.getInstance();
         this.metrics = MetricsService.getInstance();
-        
+
         this.client = new MongoClient(config.mongo.uri, {
             maxPoolSize: 50,
             minPoolSize: 10,
@@ -60,12 +60,12 @@ export class DatabaseService {
             await this.client.connect();
             this.db = this.client.db('dive25');
             this.collection = this.db.collection('documents');
-            
+
             await this.createIndexes();
             await this.validateCollections();
 
             this.logger.info('Database connection established');
-            
+
         } catch (error) {
             this.logger.error('MongoDB connection error:', error);
             this.metrics.recordOperationError('db_connection', error);
@@ -83,7 +83,7 @@ export class DatabaseService {
         try {
             const searchQuery = this.buildSearchQuery(query);
             const sort = this.buildSortOptions(options.sort);
-            
+
             const [documents, total] = await Promise.all([
                 this.collection.find(searchQuery)
                     .sort(sort)
@@ -119,12 +119,12 @@ export class DatabaseService {
 
         try {
             if (!ObjectId.isValid(id)) return null;
-            
-            const doc = await this.collection.findOne({ 
+
+            const doc = await this.collection.findOne({
                 _id: new ObjectId(id),
                 deleted: { $ne: true }
             });
-            
+
             return doc ? this.convertDocument(doc) : null;
 
         } catch (error) {
@@ -134,13 +134,20 @@ export class DatabaseService {
         }
     }
 
+    public async getDb(): Promise<Db> {
+        if (!this.db) {
+            throw new Error('Database not connected');
+        }
+        return this.db;
+    }
+
     public async createDocument(document: Omit<NATODocument, '_id'>): Promise<NATODocument> {
         this.validateConnection();
 
         try {
             const result = await this.collection.insertOne(document as NATODocument);
             const created = await this.getDocument(result.insertedId.toString());
-            
+
             if (!created) {
                 throw new Error('Failed to retrieve created document');
             }
@@ -169,9 +176,9 @@ export class DatabaseService {
             { $set: update },
             { returnDocument: 'after' }
         );
-        
+
         if (!result) return null;
-        
+
         // Convert WithId<NATODocument> to NATODocument
         return {
             ...result,
@@ -204,7 +211,7 @@ export class DatabaseService {
                 .find({ documentId: new ObjectId(id) })
                 .sort({ 'metadata.version': -1 })
                 .toArray();
-                
+
             return versions.map(v => v.metadata);
         } catch (error) {
             this.logger.error('Error retrieving document versions:', error);
@@ -215,6 +222,17 @@ export class DatabaseService {
     private validateConnection(): void {
         if (!this.db) {
             throw new Error('Database not connected');
+        }
+    }
+
+    public async disconnect(): Promise<void> {
+        try {
+            await this.client.close();
+            this.db = null;
+            this.logger.info('Database disconnected');
+        } catch (error) {
+            this.logger.error('Error disconnecting from database:', error);
+            throw error;
         }
     }
 
@@ -241,6 +259,21 @@ export class DatabaseService {
                 ...this.DB_CONFIG.INDEX_OPTIONS
             }
         ]);
+    }
+
+    private async validateCollections(): Promise<void> {
+        if (!this.db) {
+            throw new Error('Database not connected');
+        }
+        // Validate required collections exist
+        const collections = await this.db.listCollections().toArray();
+        const requiredCollections = ['documents', 'audit_logs', 'system_logs'];
+
+        for (const collection of requiredCollections) {
+            if (!collections.find(c => c.name === collection)) {
+                await this.db.createCollection(collection);
+            }
+        }
     }
 
     private buildSearchQuery(query: DocumentSearchQuery): Record<string, any> {

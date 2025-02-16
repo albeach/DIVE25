@@ -4,11 +4,11 @@ import * as prometheus from 'prom-client';
 import { Redis } from 'ioredis';
 import { config } from '../config/config';
 import { LoggerService } from './LoggerService';
-import { 
-    MetricValue, 
-    HealthStatus, 
+import {
+    MetricValue,
+    HealthStatus,
     ClearanceLevel,
-    UserAttributes 
+    UserAttributes
 } from '../types';
 
 /**
@@ -37,6 +37,7 @@ export class MetricsService {
         memoryUsage: prometheus.Gauge;
         partnerHealth: prometheus.Gauge;
         partnerResponseTime: prometheus.Histogram;
+        databaseStatus: prometheus.Counter;
     };
 
     // Metric retention configuration for compliance
@@ -86,6 +87,11 @@ export class MetricsService {
                 name: 'error_responses_total',
                 help: 'Total number of error responses',
                 labelNames: ['status', 'path']
+            }),
+            databaseStatus: new prometheus.Counter({
+                name: 'database_status',
+                help: 'Database connection status',
+                labelNames: ['status', 'timestamp']
             }),
             authenticationAttempts: new prometheus.Counter({
                 name: 'authentication_attempts_total',
@@ -255,9 +261,9 @@ export class MetricsService {
             this.metrics.totalRequests.inc({ method, path });
 
             if (statusCode >= 400) {
-                this.metrics.errorResponses.inc({ 
+                this.metrics.errorResponses.inc({
                     status: statusCode.toString(),
-                    path 
+                    path
                 });
             }
         } catch (error) {
@@ -310,7 +316,7 @@ export class MetricsService {
             this.logger.error('Error recording security event:', error);
         }
     }
-    
+
     public async getFailedAccessCount(
         userId: string,
         documentId: string,
@@ -319,7 +325,7 @@ export class MetricsService {
         try {
             const now = Date.now();
             const cutoff = now - timeWindow * 1000;
-            
+
             const key = `access_failures:${userId}:${documentId}`;
             return await this.redis.zcount(key, cutoff, now);
         } catch (error) {

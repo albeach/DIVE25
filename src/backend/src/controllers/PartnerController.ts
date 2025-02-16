@@ -1,5 +1,8 @@
 import { Request, Response } from 'express';
-import { FederationPartnerService, PartnerConfig } from '../services/FederationPartnerService';
+import {
+    FederationPartnerService
+} from '../services/FederationPartnerService';
+import { PartnerConfig } from '../types';
 import { OAuthClientService, OAuthClientConfig } from '../services/OAuthClientService';
 import { MetadataValidationService } from '../services/MetadataValidationService';
 import { SessionManagementService } from '../services/SessionManagementService';
@@ -105,7 +108,7 @@ export class PartnerController {
     async validatePartnerMetadata(req: Request, res: Response): Promise<void> {
         try {
             const { metadataUrl } = req.body;
-            
+
             if (!metadataUrl) {
                 const error = new Error('Metadata URL is required') as AuthError;
                 error.statusCode = 400;
@@ -208,7 +211,7 @@ export class PartnerController {
                 );
             }
 
-            this.logger.info('Partner updated successfully', { 
+            this.logger.info('Partner updated successfully', {
                 partnerId,
                 updatedBy: req.userAttributes.uniqueIdentifier
             });
@@ -273,10 +276,10 @@ export class PartnerController {
     async reactivatePartner(req: AuthenticatedRequest, res: Response): Promise<void> {
         try {
             const { partnerId } = req.params;
-            
+
             // Validate partner status before reactivation
             const validationResult = await this.federationService.validatePartnerStatus(partnerId);
-            
+
             if (!validationResult.canReactivate) {
                 const error = new Error('Partner cannot be reactivated') as AuthError;
                 error.statusCode = 400;

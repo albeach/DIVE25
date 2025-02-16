@@ -5,56 +5,18 @@ import { config } from '../config/config';
 import { LoggerService } from './LoggerService';
 import { MetricsService } from './MetricsService';
 import { MetadataValidationService } from './MetadataValidationService';
-import { 
-    PartnerConfig, 
-    FederationPartner,
-    ValidationResult,
-    AuthError 
-} from '../types';
-
-export interface PartnerConfig {
-    partnerId: string;
-    partnerName: string;
-    federationType: 'SAML' | 'OIDC';
-    metadata: {
-        url?: string;
-        content?: string;
-    };
-    attributeMapping: {
-        [key: string]: string;
-    };
-    contactInfo: {
-        technical: {
-            name: string;
-            email: string;
-        };
-        administrative: {
-            name: string;
-            email: string;
-        };
-    };
-}
-
-export interface Partner extends PartnerConfig {
-    status: 'ACTIVE' | 'INACTIVE' | 'PENDING';
-    oauthClientId: string;
-    createdAt: Date;
-    createdBy: string;
-    lastModified: Date;
-    lastModifiedBy?: string;
-    deactivatedAt?: Date;
-    deactivatedBy?: string;
-    deactivationReason?: string;
-}
+import { PartnerConfig, Partner, FederationPartner, ValidationResult, AuthError } from '../types';
 
 export class FederationPartnerService {
     private static instance: FederationPartnerService;
+    private readonly baseUrl: string;
+    private readonly adminApiToken: string;
     private readonly axios: AxiosInstance;
     private readonly redis: Redis;
     private readonly logger: LoggerService;
     private readonly metrics: MetricsService;
     private readonly metadataValidator: MetadataValidationService;
-    
+
     private readonly CACHE_TTL = 3600; // 1 hour
     private readonly RETRY_ATTEMPTS = 3;
     private readonly PARTNER_STATUS_KEY = 'partner:status:';
@@ -63,7 +25,12 @@ export class FederationPartnerService {
         this.logger = LoggerService.getInstance();
         this.metrics = MetricsService.getInstance();
         this.metadataValidator = MetadataValidationService.getInstance();
-        
+        this.baseUrl = config.pingFederate.baseUrl;
+        this.adminApiToken = config.pingFederate.adminApiToken;
+        if (!this.adminApiToken) {
+            throw new Error('PingFederate admin API token not configured');
+        }
+
         // Initialize Redis with connection pooling
         this.redis = new Redis({
             ...config.redis,
@@ -202,7 +169,7 @@ export class FederationPartnerService {
     private handleAxiosError(error: any): never {
         const status = error.response?.status || 500;
         const message = error.response?.data?.message || error.message;
-        
+
         this.logger.error('HTTP request failed:', {
             status,
             message,

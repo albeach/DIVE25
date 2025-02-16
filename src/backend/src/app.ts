@@ -102,6 +102,8 @@ class App {
     }
 
     private initializeRoutes(): void {
+
+        const documentRoutes = DocumentRoutes.getInstance();
         // Health check endpoint
         this.app.get('/health', (req: Request, res: Response) => {
             res.json({
@@ -126,7 +128,7 @@ class App {
         this.app.use(
             '/api/documents',
             AuthMiddleware.authenticate,
-            DocumentRoutes.getInstance().getRouter()
+            documentRoutes.getRouter()
         );
     }
 

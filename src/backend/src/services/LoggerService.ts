@@ -3,10 +3,10 @@
 import winston from 'winston';
 import { MongoDB } from 'winston-mongodb';
 import { config } from '../config/config';
-import { 
-    UserAttributes, 
-    AuditEvent, 
-    ClearanceLevel 
+import {
+    UserAttributes,
+    AuditEvent,
+    ClearanceLevel
 } from '../types';
 
 export class LoggerService {
@@ -77,7 +77,7 @@ export class LoggerService {
                     useUnifiedTopology: true
                 },
                 metaKey: 'metadata'
-            })
+            }) as unknown as winston.transport
         ];
 
         if (config.env === 'production') {
@@ -108,7 +108,7 @@ export class LoggerService {
                     useUnifiedTopology: true
                 },
                 metaKey: 'metadata'
-            })
+            }) as unknown as winston.transport
         ];
     }
 
@@ -145,21 +145,16 @@ export class LoggerService {
     ): Promise<void> {
         const auditEvent: AuditEvent = {
             timestamp: new Date(),
-            eventType,
+            eventType: 'SECURITY',
             userId: userAttributes.uniqueIdentifier,
-            userAttributes: {
-                clearance: userAttributes.clearance,
-                countryOfAffiliation: userAttributes.countryOfAffiliation,
-                coiTags: userAttributes.coiTags,
-                lacvCode: userAttributes.lacvCode
-            },
+            userAttributes: userAttributes,
             resourceId: details.resourceId,
             action: details.action,
             status: details.status,
-            details: this.sanitizeAuditDetails(details)
+            details
         };
 
-        this.auditLogger.info('Security Event', { 
+        this.auditLogger.info('Security Event', {
             event: auditEvent,
             retention: this.AUDIT_RETENTION.SECURITY
         });
@@ -178,45 +173,42 @@ export class LoggerService {
             eventType: 'ACCESS',
             userId: userAttributes.uniqueIdentifier,
             userAttributes: {
-                clearance: userAttributes.clearance,
-                countryOfAffiliation: userAttributes.countryOfAffiliation,
-                coiTags: userAttributes.coiTags,
-                lacvCode: userAttributes.lacvCode
+                ...userAttributes
             },
             resourceId: documentId,
             action,
             status: success ? 'SUCCESS' : 'DENIED',
-            details: this.sanitizeAuditDetails({
+            details: {
                 documentClearance: clearance,
                 ...details
-            })
+            }
         };
 
-        this.auditLogger.info('Document Access', { 
-            event: auditEvent,
-            retention: this.AUDIT_RETENTION.GENERAL
-        });
+        this.auditLogger.info('Document Access', { event: auditEvent });
     }
 
     public async auditAuthentication(
-        userId: string,
+        userAttributes: UserAttributes,
         partnerId: string | null,
         success: boolean,
         details?: Record<string, any>
     ): Promise<void> {
         const auditEvent: AuditEvent = {
             timestamp: new Date(),
-            eventType: 'AUTHENTICATION',
-            userId,
+            eventType: 'AUTHENTICATION' as any,
+            userId: userAttributes.uniqueIdentifier,
+            userAttributes: {
+                ...userAttributes
+            },
             action: 'LOGIN',
             status: success ? 'SUCCESS' : 'DENIED',
-            details: this.sanitizeAuditDetails({
+            details: {
                 partnerId,
                 ...details
-            })
+            }
         };
 
-        this.auditLogger.info('Authentication', { 
+        this.auditLogger.info('Authentication', {
             event: auditEvent,
             retention: this.AUDIT_RETENTION.SECURITY
         });
@@ -225,13 +217,13 @@ export class LoggerService {
     private sanitizeAuditDetails(details: Record<string, any>): Record<string, any> {
         const sanitized: Record<string, any> = {};
         const sensitiveFields = ['password', 'token', 'secret', 'key'];
-        
+
         for (const [key, value] of Object.entries(details)) {
             if (!sensitiveFields.includes(key.toLowerCase())) {
                 sanitized[key] = value;
             }
         }
-        
+
         return sanitized;
     }
 }

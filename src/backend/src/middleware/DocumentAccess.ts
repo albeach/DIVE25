@@ -81,7 +81,7 @@ export class DocumentAccessMiddleware {
             }
 
             const document = await this.documentService.retrieveDocument(documentId);
-            
+
             if (!document) {
                 throw this.createAccessError(
                     'Document not found',
@@ -92,11 +92,16 @@ export class DocumentAccessMiddleware {
 
             await this.validateUserAttributes(req.userAttributes);
 
-            const accessResult = await this.opaService.evaluateAccess({
-                userAttributes: req.userAttributes,
-                document: document.document,
-                action
-            });
+            const accessResult = await this.opaService.evaluateAccess(
+                req.userAttributes,
+                {
+                    clearance: document.document.clearance,
+                    releasableTo: document.document.releasableTo,
+                    coiTags: document.document.coiTags,
+                    lacvCode: document.document.lacvCode
+                },
+                'read'
+            );
 
             if (!accessResult.allow) {
                 await this.handleAccessDenial(
@@ -171,7 +176,7 @@ export class DocumentAccessMiddleware {
         try {
             const documentId = req.params.id;
             const currentDocument = await this.documentService.retrieveDocument(documentId);
-            
+
             if (!currentDocument) {
                 throw this.createAccessError(
                     'Document not found',
@@ -212,7 +217,7 @@ export class DocumentAccessMiddleware {
                 error instanceof asAuthError ? 403 : 403,
                 error instanceof asAuthError ? 'ACCESS000' : 'ACCESS000'
             );
-            
+
             this.logger.error('Security modification validation error:', {
                 error: accessError,
                 userId: req.userAttributes?.uniqueIdentifier,
@@ -243,7 +248,7 @@ export class DocumentAccessMiddleware {
 
     private async validateUserAttributes(attributes: UserAttributes): Promise<void> {
         const validation = await this.opaService.validateAttributes(attributes);
-        
+
         if (!validation.valid) {
             throw this.createAccessError(
                 'Invalid user security attributes',
@@ -328,6 +333,33 @@ export class DocumentAccessMiddleware {
         }
     }
 
+    private async getRecentFailedAttempts(
+        userId: string,
+        documentId: string
+    ): Promise<number> {
+        const timeWindow = 3600; // 1 hour
+        return await this.metrics.getFailedAccessCount(userId, documentId, timeWindow);
+    }
+
+    private async handleSuspiciousActivity(
+        userAttributes: UserAttributes,
+        documentId: string,
+        failedAttempts: number
+    ): Promise<void> {
+        await this.metrics.recordSecurityEvent('suspicious_activity', {
+            userId: userAttributes.uniqueIdentifier,
+            documentId,
+            failedAttempts,
+            timestamp: new Date()
+        });
+
+        this.logger.warn('Suspicious activity detected', {
+            userId: userAttributes.uniqueIdentifier,
+            documentId,
+            failedAttempts
+        });
+    }
+
     /**
      * Detects changes to security-related attributes in document updates.
      * This ensures all security-relevant modifications are properly tracked.
@@ -382,7 +414,7 @@ export class DocumentAccessMiddleware {
         }
 
         // Check LACV code changes
-        if (updates.lacvCode !== undefined && 
+        if (updates.lacvCode !== undefined &&
             updates.lacvCode !== currentDocument.lacvCode) {
             changes.lacvCode = {
                 from: currentDocument.lacvCode,
@@ -424,7 +456,7 @@ export class DocumentAccessMiddleware {
                 }
 
                 // Check for classification downgrade attempts
-                if (this.getSecurityLevel(changes.clearance.to) < 
+                if (this.getSecurityLevel(changes.clearance.to) <
                     this.getSecurityLevel(changes.clearance.from)) {
                     errors.push('Security classification cannot be downgraded');
                 }
@@ -464,7 +496,7 @@ export class DocumentAccessMiddleware {
                 }
 
                 // Ensure at least one releasability marker remains
-                if (currentDocument.releasableTo.length - removedMarkers.length + 
+                if (currentDocument.releasableTo.length - removedMarkers.length +
                     addedMarkers.length === 0) {
                     errors.push('Document must maintain at least one releasability marker');
                 }
@@ -495,8 +527,8 @@ export class DocumentAccessMiddleware {
                 const { from, to } = changes.lacvCode;
 
                 // Only users with matching LACV code or COSMIC TOP SECRET can modify
-                if (to && 
-                    userAttributes.clearance !== 'COSMIC TOP SECRET' && 
+                if (to &&
+                    userAttributes.clearance !== 'COSMIC TOP SECRET' &&
                     userAttributes.lacvCode !== to) {
                     errors.push('Insufficient privileges to modify LACV code');
                 }

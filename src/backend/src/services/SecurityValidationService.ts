@@ -3,15 +3,15 @@
 import { OPAService } from './OPAService';
 import { LoggerService } from './LoggerService';
 import { MetricsService } from './MetricsService';
-import { 
-    UserAttributes, 
+import {
+    UserAttributes,
     NATODocument,
     ValidationResult,
     ClearanceLevel,
     CoiTag,
     LacvCode,
     ReleasabilityMarker,
-    AuthError 
+    AuthError
 } from '../types';
 
 export class SecurityValidationService {
@@ -146,6 +146,36 @@ export class SecurityValidationService {
         }
     }
 
+    private async validateReleasabilityChange(
+        currentMarkers: ReleasabilityMarker[],
+        proposedMarkers: ReleasabilityMarker[],
+        userAttributes: UserAttributes
+    ): Promise<ValidationResult> {
+        const errors: string[] = [];
+
+        // Check for valid markers
+        const validationResult = this.validateReleasabilityMarkers(proposedMarkers);
+        if (!validationResult.valid) {
+            errors.push(...validationResult.errors);
+        }
+
+        // Ensure at least one marker remains
+        if (proposedMarkers.length === 0) {
+            errors.push('At least one releasability marker is required');
+        }
+
+        // Check user's authority to modify markers
+        if (userAttributes.clearance !== 'NATO SECRET' &&
+            userAttributes.clearance !== 'COSMIC TOP SECRET') {
+            errors.push('Insufficient clearance to modify releasability markers');
+        }
+
+        return {
+            valid: errors.length === 0,
+            errors
+        };
+    }
+
     /**
      * Validates security modifications according to NATO policies
      */
@@ -159,15 +189,15 @@ export class SecurityValidationService {
 
         try {
             // Check classification changes
-            if (proposedChanges.clearance && 
+            if (proposedChanges.clearance &&
                 proposedChanges.clearance !== currentDocument.clearance) {
-                    
+
                 const classificationValid = await this.validateClassificationChange(
                     currentDocument.clearance,
                     proposedChanges.clearance,
                     userAttributes
                 );
-                
+
                 if (!classificationValid.valid) {
                     errors.push(...classificationValid.errors);
                 }
@@ -180,7 +210,7 @@ export class SecurityValidationService {
                     proposedChanges.releasableTo,
                     userAttributes
                 );
-                
+
                 if (!releasabilityValid.valid) {
                     errors.push(...releasabilityValid.errors);
                 }
@@ -274,7 +304,82 @@ export class SecurityValidationService {
         return error;
     }
 
-    // Additional validation methods...
+    private validateReleasabilityMarkers(markers: string[]): ValidationResult {
+        const errors: string[] = [];
+
+        if (!markers || markers.length === 0) {
+            errors.push('At least one releasability marker is required');
+            return { valid: false, errors };
+        }
+
+        const invalidMarkers = markers.filter(
+            marker => !this.SECURITY_POLICY.VALID_RELEASABILITY_MARKERS.includes(marker as ReleasabilityMarker)
+        );
+
+        if (invalidMarkers.length > 0) {
+            errors.push(`Invalid releasability markers: ${invalidMarkers.join(', ')}`);
+        }
+
+        return {
+            valid: errors.length === 0,
+            errors
+        };
+    }
+
+    private async validateCoiTags(
+        tags: string[],
+        userAttributes: UserAttributes,
+        clearance: ClearanceLevel
+    ): Promise<ValidationResult> {
+        const errors: string[] = [];
+
+        if (tags && tags.length > 0) {
+            const invalidTags = tags.filter(
+                tag => !this.SECURITY_POLICY.VALID_COI_TAGS.includes(tag as CoiTag)
+            );
+
+            if (invalidTags.length > 0) {
+                errors.push(`Invalid COI tags: ${invalidTags.join(', ')}`);
+            }
+
+            // Check user has required COI memberships
+            const missingTags = tags.filter(
+                tag => !userAttributes.coiTags?.includes(tag as CoiTag)
+            );
+
+            if (missingTags.length > 0) {
+                errors.push(`User lacks required COI memberships: ${missingTags.join(', ')}`);
+            }
+        }
+
+        return {
+            valid: errors.length === 0,
+            errors
+        };
+    }
+
+    private validateLacvCode(
+        code: string,
+        userAttributes: UserAttributes
+    ): ValidationResult {
+        const errors: string[] = [];
+
+        if (code) {
+            if (!this.SECURITY_POLICY.VALID_LACV_CODES.includes(code as LacvCode)) {
+                errors.push(`Invalid LACV code: ${code}`);
+            }
+
+            if (userAttributes.clearance !== 'COSMIC TOP SECRET' &&
+                userAttributes.lacvCode !== code) {
+                errors.push('User not authorized for this LACV code');
+            }
+        }
+
+        return {
+            valid: errors.length === 0,
+            errors
+        };
+    }
 }
 
 export default SecurityValidationService.getInstance();

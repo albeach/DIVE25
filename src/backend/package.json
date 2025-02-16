@@ -13,12 +13,12 @@
   },
   "dependencies": {
     "@open-policy-agent/opa-wasm": "^1.10.0",
-    "express-rate-limit": "latest",
     "axios": "^1.7.9",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "express-jwt": "^8.5.1",
+    "express-rate-limit": "latest",
     "helmet": "^8.0.0",
     "ioredis": "^5.3.2",
     "ldapjs": "^3.0.7",
@@ -26,6 +26,7 @@
     "multer": "^1.4.5-lts.1",
     "prom-client": "^15.1.0",
     "winston": "^3.17.0",
+    "winston-mongodb": "^6.0.0",
     "xml-crypto": "^3.2.0",
     "xmldom": "^0.6.0"
   },

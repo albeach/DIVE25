@@ -4,13 +4,13 @@ import axios, { AxiosInstance } from 'axios';
 import { config } from '../config/config';
 import { LoggerService } from './LoggerService';
 import { MetricsService } from './MetricsService';
-import { 
-    UserAttributes, 
-    ResourceAttributes, 
-    OPAResult, 
+import {
+    UserAttributes,
+    ResourceAttributes,
+    OPAResult,
     ValidationResult,
     NATODocument,
-    ClearanceLevel 
+    ClearanceLevel
 } from '../types';
 
 export interface OPAService {
@@ -89,7 +89,7 @@ export class OPAService {
             });
 
             const result = response.data.result;
-            
+
             await this.metrics.recordOperationMetrics('opa_evaluation', {
                 duration: Date.now() - startTime,
                 decision: result.allow,
@@ -105,7 +105,7 @@ export class OPAService {
         } catch (error) {
             this.logger.error('OPA evaluation error:', error);
             await this.metrics.recordOperationError('opa_evaluation', error);
-            
+
             return {
                 allow: false,
                 reason: 'Policy evaluation error'
@@ -151,7 +151,7 @@ export class OPAService {
 
             return {
                 allow: hasAccess,
-                reason: hasAccess ? undefined : 
+                reason: hasAccess ? undefined :
                     `Insufficient clearance level: requires ${requiredClearance}`
             };
 
@@ -187,6 +187,16 @@ export class OPAService {
                 allow: false,
                 reason: 'Update access evaluation error'
             };
+        }
+    }
+
+    public async validateConnection(): Promise<boolean> {
+        try {
+            await this.axios.get('/health');
+            return true;
+        } catch (error) {
+            this.logger.error('OPA connection failed:', error);
+            throw new Error('Failed to connect to OPA');
         }
     }
 
@@ -246,7 +256,7 @@ export class OPAService {
 
     private handleAxiosError(error: any): never {
         this.logger.error('OPA request failed:', error);
-        
+
         throw {
             message: error.response?.data?.message || error.message,
             status: error.response?.status || 500,

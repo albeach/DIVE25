@@ -7,12 +7,12 @@ import { LoggerService } from '../services/LoggerService';
 import { MetricsService } from '../services/MetricsService';
 import {
     AuthenticatedRequest,
-    ApiResponse,
     NATODocument,
+    ApiResponse,
 } from '../types';
 
 export class DocumentRoutes {
-    private static instance: DocumentRoutes;
+    private static _instance: DocumentRoutes | null = null;
     private readonly router: Router;
     private readonly documentController: DocumentController;
     private readonly logger: LoggerService;
@@ -27,10 +27,10 @@ export class DocumentRoutes {
     }
 
     public static getInstance(): DocumentRoutes {
-        if (!DocumentRoutes.instance) {
-            DocumentRoutes.instance = new DocumentRoutes();
+        if (!DocumentRoutes._instance) {
+            DocumentRoutes._instance = new DocumentRoutes();
         }
-        return DocumentRoutes.instance;
+        return DocumentRoutes._instance;
     }
 
     public getRouter(): Router {
@@ -223,4 +223,5 @@ export class DocumentRoutes {
     }
 }
 
-export default DocumentRoutes.getInstance();
+export const documentRoutes = DocumentRoutes.getInstance();
+export default DocumentRoutes;

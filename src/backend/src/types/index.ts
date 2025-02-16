@@ -12,14 +12,14 @@ export interface SearchResult<T> {
 }
 
 // Security-related types
-export type ClearanceLevel = 
+export type ClearanceLevel =
     | 'UNCLASSIFIED'
     | 'RESTRICTED'
     | 'NATO CONFIDENTIAL'
     | 'NATO SECRET'
     | 'COSMIC TOP SECRET';
 
-export type ReleasabilityMarker = 
+export type ReleasabilityMarker =
     | 'NATO'
     | 'EU'
     | 'FVEY'
@@ -27,7 +27,7 @@ export type ReleasabilityMarker =
 
 export type CoiTag = 'OpAlpha' | 'OpBravo' | 'OpGamma' | 'MissionX' | 'MissionZ';
 
-export type LacvCode = 
+export type LacvCode =
     | 'LACV001'
     | 'LACV002'
     | 'LACV003'
@@ -199,21 +199,6 @@ export interface HealthStatus {
     };
 }
 
-// Federation interfaces
-export interface FederationPartner {
-    partnerId: string;
-    partnerType: 'SAML' | 'OIDC';
-    entityId: string;
-    metadata: {
-        url: string;
-        lastUpdated: Date;
-    };
-    status: 'active' | 'inactive' | 'pending';
-    clearanceLevel: ClearanceLevel;
-    allowedReleasabilityMarkers: ReleasabilityMarker[];
-    healthStatus: HealthStatus;
-}
-
 // API Response interfaces
 export interface ApiResponse<T> {
     success: boolean;
@@ -237,10 +222,56 @@ export interface ValidationResult {
     missingAttributes?: string[];
 }
 
+export interface PartnerConfig {
+    partnerId: string;
+    partnerName: string;
+    federationType: 'SAML' | 'OIDC';
+    metadata: {
+        url?: string;
+        content?: string;
+    };
+    attributeMapping: {
+        [key: string]: string;
+    };
+    contactInfo: {
+        technical: {
+            name: string;
+            email: string;
+        };
+        administrative: {
+            name: string;
+            email: string;
+        };
+    };
+}
+
+export interface Partner extends PartnerConfig {
+    status: 'ACTIVE' | 'INACTIVE' | 'PENDING';
+    oauthClientId: string;
+    createdAt: Date;
+    createdBy: string;
+    lastModified: Date;
+    lastModifiedBy?: string;
+    deactivatedAt?: Date;
+    deactivatedBy?: string;
+    deactivationReason?: string;
+}
+
+export interface FederationPartner extends Partner, PartnerConfig {
+    entityId: string;
+    metadata: {
+        url: string;
+        lastUpdated: Date;
+    };
+    clearanceLevel: ClearanceLevel;
+    allowedReleasabilityMarkers: ReleasabilityMarker[];
+    healthStatus: HealthStatus;
+}
+
 // Audit interfaces
 export interface AuditEvent {
     timestamp: Date;
-    eventType: 'ACCESS' | 'MODIFY' | 'DELETE' | 'SEARCH';
+    eventType: 'ACCESS' | 'MODIFY' | 'DELETE' | 'SEARCH' | 'AUTHENTICATION' | 'SECURITY';
     userId: string;
     userAttributes: UserAttributes;
     resourceId?: string;
@@ -259,4 +290,16 @@ export interface AuditLogDocument {
     action: string;
     timestamp: Date;
     details?: Record<string, any>;
+}
+
+export interface ResourceAttributes {
+    clearance: ClearanceLevel;
+    releasableTo?: ReleasabilityMarker[];
+    coiTags?: CoiTag[];
+    lacvCode?: LacvCode;
+}
+
+export interface OPAResult {
+    allow: boolean;
+    reason?: string;
 }
