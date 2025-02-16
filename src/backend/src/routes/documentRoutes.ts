@@ -1,9 +1,11 @@
-import { Router, Response, NextFunction } from 'express';
+import { Router, Response } from 'express';
 import AuthMiddleware from '../middleware/AuthMiddleware';
 import DocumentAccessMiddleware from '../middleware/DocumentAccess';
 import DocumentValidationMiddleware from '../middleware/DocumentValidation';
 import { DocumentController } from '../controllers/DocumentController';
-import { 
+import { LoggerService } from '../services/LoggerService';
+import { MetricsService } from '../services/MetricsService';
+import {
     AuthenticatedRequest,
     ApiResponse,
     NATODocument,
@@ -13,10 +15,14 @@ export class DocumentRoutes {
     private static instance: DocumentRoutes;
     private readonly router: Router;
     private readonly documentController: DocumentController;
+    private readonly logger: LoggerService;
+    private readonly metrics: MetricsService;
 
     private constructor() {
         this.router = Router();
         this.documentController = DocumentController.getInstance();
+        this.logger = LoggerService.getInstance();
+        this.metrics = MetricsService.getInstance();
         this.initializeRoutes();
     }
 
@@ -35,73 +41,185 @@ export class DocumentRoutes {
         this.router.use(AuthMiddleware.authenticate);
         this.router.use(AuthMiddleware.extractUserAttributes);
 
-        this.router.get('/:id', 
+        this.router.get('/:id',
             DocumentAccessMiddleware.validateAccess,
-            this.handleGetDocument.bind(this)
+            this.wrapRoute(this.handleGetDocument.bind(this))
         );
 
         this.router.post('/search',
-            this.handleSearchDocuments.bind(this)
+            this.wrapRoute(this.handleSearchDocuments.bind(this))
         );
 
         this.router.post('/',
             AuthMiddleware.requireClearance('NATO CONFIDENTIAL'),
             DocumentValidationMiddleware.validateDocument,
-            this.handleCreateDocument.bind(this)
+            this.wrapRoute(this.handleCreateDocument.bind(this))
         );
 
         this.router.put('/:id',
             AuthMiddleware.requireClearance('NATO CONFIDENTIAL'),
             DocumentAccessMiddleware.validateAccess,
             DocumentValidationMiddleware.validateDocument,
-            this.handleUpdateDocument.bind(this)
+            this.wrapRoute(this.handleUpdateDocument.bind(this))
         );
 
         this.router.delete('/:id',
             AuthMiddleware.requireClearance('NATO SECRET'),
             DocumentAccessMiddleware.validateAccess,
-            this.handleDeleteDocument.bind(this)
+            this.wrapRoute(this.handleDeleteDocument.bind(this))
         );
     }
 
     private async handleGetDocument(req: AuthenticatedRequest, res: Response): Promise<void> {
-        await this.documentController.getDocument(req, res);
+        const startTime = Date.now();
+        try {
+            await this.documentController.getDocument(req, res);
+
+            await this.metrics.recordHttpRequest(
+                req.method,
+                req.path,
+                200,
+                Date.now() - startTime
+            );
+        } catch (error) {
+            this.handleError(error, req, res);
+        }
     }
 
     private async handleSearchDocuments(req: AuthenticatedRequest, res: Response): Promise<void> {
-        await this.documentController.searchDocuments(req, res);
+        const startTime = Date.now();
+        try {
+            await this.documentController.searchDocuments(req, res);
+
+            await this.metrics.recordHttpRequest(
+                req.method,
+                req.path,
+                200,
+                Date.now() - startTime
+            );
+        } catch (error) {
+            this.handleError(error, req, res);
+        }
     }
 
     private async handleCreateDocument(req: AuthenticatedRequest, res: Response): Promise<void> {
-        const document = await this.documentController.createDocument(req.body, req.userAttributes);
-        res.status(201).json({
-            success: true,
-            data: document
-        });
+        const startTime = Date.now();
+        try {
+            const document = await this.documentController.createDocument(
+                req.body,
+                req.userAttributes
+            );
+
+            await this.metrics.recordHttpRequest(
+                req.method,
+                req.path,
+                201,
+                Date.now() - startTime
+            );
+
+            const response: ApiResponse<NATODocument> = {
+                success: true,
+                data: document,
+                metadata: {
+                    timestamp: new Date(),
+                    requestId: req.headers['x-request-id'] as string
+                }
+            };
+
+            res.status(201).json(response);
+        } catch (error) {
+            this.handleError(error, req, res);
+        }
     }
 
     private async handleUpdateDocument(req: AuthenticatedRequest, res: Response): Promise<void> {
-        await this.documentController.updateDocument(req, res);
+        const startTime = Date.now();
+        try {
+            await this.documentController.updateDocument(req, res);
+
+            await this.metrics.recordHttpRequest(
+                req.method,
+                req.path,
+                200,
+                Date.now() - startTime
+            );
+        } catch (error) {
+            this.handleError(error, req, res);
+        }
     }
 
     private async handleDeleteDocument(req: AuthenticatedRequest, res: Response): Promise<void> {
+        const startTime = Date.now();
         try {
-            const deleted = await this.documentController.deleteDocument(req.params.id, req.userAttributes);
-            const status = deleted ? 200 : 404;
-            res.status(status).json({
+            const deleted = await this.documentController.deleteDocument(
+                req.params.id,
+                req.userAttributes
+            );
+
+            await this.metrics.recordHttpRequest(
+                req.method,
+                req.path,
+                deleted ? 200 : 404,
+                Date.now() - startTime
+            );
+
+            const response: ApiResponse<{ deleted: boolean }> = {
                 success: deleted,
-                message: deleted ? 'Document deleted successfully' : 'Document not found'
-            });
+                data: { deleted },
+                metadata: {
+                    timestamp: new Date(),
+                    requestId: req.headers['x-request-id'] as string
+                }
+            };
+
+            res.status(deleted ? 200 : 404).json(response);
         } catch (error) {
-            const typedError = error instanceof Error ? error : new Error('Unknown error');
-            const statusCode = (typedError as any).statusCode || 500;
-            
-            res.status(statusCode).json({
-                success: false,
-                message: 'Error deleting document',
-                error: typedError.message
-            });
+            this.handleError(error, req, res);
         }
+    }
+
+    private handleError(error: any, req: AuthenticatedRequest, res: Response): void {
+        const statusCode = error.statusCode || 500;
+
+        this.logger.error('Route handling error:', {
+            error,
+            path: req.path,
+            method: req.method,
+            userId: req.userAttributes?.uniqueIdentifier
+        });
+
+        this.metrics.recordHttpRequest(
+            req.method,
+            req.path,
+            statusCode,
+            Date.now() - (req.startTime || Date.now())
+        );
+
+        const response: ApiResponse<null> = {
+            success: false,
+            error: {
+                message: error.message || 'Internal server error',
+                code: error.code || 'ROUTE_ERROR',
+                details: error.details
+            },
+            metadata: {
+                timestamp: new Date(),
+                requestId: req.headers['x-request-id'] as string
+            }
+        };
+
+        res.status(statusCode).json(response);
+    }
+
+    private wrapRoute(handler: (req: AuthenticatedRequest, res: Response) => Promise<void>) {
+        return async (req: AuthenticatedRequest, res: Response) => {
+            req.startTime = Date.now();
+            try {
+                await handler(req, res);
+            } catch (error) {
+                this.handleError(error, req, res);
+            }
+        };
     }
 }
 

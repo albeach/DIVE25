@@ -1,48 +1,63 @@
-import express, { Request, Response, NextFunction, RequestHandler } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { config } from './config/config';
 import AuthMiddleware from './middleware/AuthMiddleware';
-import { DocumentController } from './controllers/DocumentController';
-import PartnerController from './controllers/PartnerController';
-import { MonitoringController } from './controllers/MonitoringController';
+import DocumentRoutes from './routes/DocumentRoutes';
 import { DatabaseService } from './services/DatabaseService';
 import { LoggerService } from './services/LoggerService';
 import { MetricsService } from './services/MetricsService';
+import { OPAService } from './services/OPAService';
 import { AuthenticatedRequest, AuthError } from './types';
 import prometheus from 'prom-client';
-import crypto from 'crypto';
-
-function isAuthenticatedRequest(req: any): req is AuthenticatedRequest {
-    return 'userAttributes' in req;
-}
 
 class App {
     public app: express.Application;
-    private logger: LoggerService;
-    private metrics: MetricsService;
-    private db: DatabaseService;
+    private readonly logger: LoggerService;
+    private readonly metrics: MetricsService;
+    private readonly db: DatabaseService;
+    private readonly opa: OPAService;
 
     constructor() {
         this.app = express();
         this.logger = LoggerService.getInstance();
         this.metrics = MetricsService.getInstance();
         this.db = DatabaseService.getInstance();
+        this.opa = OPAService.getInstance();
+
         this.initializeMiddleware();
-        this.initializeControllers();
+        this.initializeRoutes();
         this.initializeErrorHandling();
     }
 
     private initializeMiddleware(): void {
-        // Security middleware
-        this.app.use(helmet());
+        // Enhanced security middleware
+        this.app.use(helmet({
+            contentSecurityPolicy: true,
+            crossOriginEmbedderPolicy: true,
+            crossOriginOpenerPolicy: true,
+            crossOriginResourcePolicy: true,
+            dnsPrefetchControl: true,
+            frameguard: true,
+            hidePoweredBy: true,
+            hsts: true,
+            ieNoOpen: true,
+            noSniff: true,
+            originAgentCluster: true,
+            permittedCrossDomainPolicies: true,
+            referrerPolicy: true,
+            xssFilter: true
+        }));
+
+        // Enhanced CORS configuration
         this.app.use(cors({
-            origin: config.corsOrigins || ['http://localhost:3000'],
+            origin: config.corsOrigins,
             methods: ['GET', 'POST', 'PUT', 'DELETE'],
-            allowedHeaders: ['Content-Type', 'Authorization'],
-            exposedHeaders: ['X-Request-Id'],
-            credentials: true
+            allowedHeaders: ['Content-Type', 'Authorization', 'x-request-id'],
+            exposedHeaders: ['x-request-id'],
+            credentials: true,
+            maxAge: 600 // 10 minutes
         }));
 
         // Rate limiting
@@ -59,9 +74,12 @@ class App {
 
         // Request logging and metrics
         this.app.use((req: Request, res: Response, next: NextFunction) => {
-            const requestId = req.headers['x-request-id'] || crypto.randomUUID();
+            const requestId = req.headers['x-request-id'] ||
+                `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
             req.headers['x-request-id'] = requestId;
-            
+
+            const startTime = Date.now();
+
             this.logger.info('Incoming request', {
                 method: req.method,
                 path: req.path,
@@ -69,48 +87,28 @@ class App {
                 ip: req.ip
             });
 
-            const startTime = Date.now();
             res.on('finish', () => {
                 const duration = Date.now() - startTime;
-                this.metrics.recordHttpRequest(req.method, req.path, res.statusCode, duration);
-                
-                this.logger.info('Request completed', {
-                    method: req.method,
-                    path: req.path,
-                    statusCode: res.statusCode,
-                    duration,
-                    requestId
-                });
+                this.metrics.recordHttpRequest(
+                    req.method,
+                    req.path,
+                    res.statusCode,
+                    duration
+                );
             });
 
             next();
         });
     }
 
-    private createAuthenticatedHandler(
-        handler: (req: AuthenticatedRequest, res: Response) => Promise<void>
-    ): RequestHandler {
-        return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-            if (!isAuthenticatedRequest(req)) {
-                res.status(401).json({ error: 'Not authenticated' });
-                return;
-            }
-            try {
-                await handler(req, res);
-            } catch (error) {
-                next(error);
-            }
-        };
-    }
-
-    private initializeControllers(): void {
-        const documentController = DocumentController.getInstance();
-        const partnerController = PartnerController.getInstance();
-        const monitoringController = MonitoringController.getInstance();
-
+    private initializeRoutes(): void {
         // Health check endpoint
         this.app.get('/health', (req: Request, res: Response) => {
-            res.json({ status: 'ok', timestamp: new Date().toISOString() });
+            res.json({
+                status: 'ok',
+                timestamp: new Date().toISOString(),
+                version: process.env.npm_package_version
+            });
         });
 
         // Metrics endpoint
@@ -119,89 +117,16 @@ class App {
                 res.set('Content-Type', prometheus.register.contentType);
                 res.end(await prometheus.register.metrics());
             } catch (error) {
+                this.logger.error('Error collecting metrics:', error);
                 res.status(500).json({ error: 'Failed to collect metrics' });
             }
         });
 
-        // Document routes
-        this.app.use('/api/documents',
-            AuthMiddleware.authenticate as RequestHandler,
-            AuthMiddleware.extractUserAttributes as RequestHandler
-        );
-
-        this.app.get('/api/documents/:id', 
-            this.createAuthenticatedHandler((req, res) => 
-                documentController.getDocument(req, res)
-            )
-        );
-
-        this.app.post('/api/documents/search', 
-            this.createAuthenticatedHandler((req, res) => 
-                documentController.searchDocuments(req, res)
-            )
-        );
-
-        this.app.post('/api/documents',
-            AuthMiddleware.requireClearance('NATO CONFIDENTIAL') as RequestHandler,
-            this.createAuthenticatedHandler(async (req, res) => {
-                const document = await documentController.createDocument(req.body, req.userAttributes);
-                res.status(201).json(document);
-            })
-        );
-
-        this.app.put('/api/documents/:id',
-            AuthMiddleware.requireClearance('NATO CONFIDENTIAL') as RequestHandler,
-            this.createAuthenticatedHandler((req, res) => 
-                documentController.updateDocument(req, res)
-            )
-        );
-
-        // Partner routes
-        this.app.use('/api/partners',
-            AuthMiddleware.authenticate as RequestHandler,
-            AuthMiddleware.requireClearance('NATO SECRET') as RequestHandler
-        );
-
-        this.app.post('/api/partners/onboard', 
-            this.createAuthenticatedHandler((req, res) => 
-                partnerController.onboardPartner(req, res)
-            )
-        );
-
-        this.app.get('/api/partners/:partnerId', 
-            this.createAuthenticatedHandler((req, res) => 
-                partnerController.getPartnerDetails(req, res)
-            )
-        );
-
-        this.app.put('/api/partners/:partnerId', 
-            this.createAuthenticatedHandler((req, res) => 
-                partnerController.updatePartner(req, res)
-            )
-        );
-
-        this.app.delete('/api/partners/:partnerId', 
-            this.createAuthenticatedHandler((req, res) => 
-                partnerController.deactivatePartner(req, res)
-            )
-        );
-
-        // Monitoring routes
-        this.app.use('/api/monitoring',
-            AuthMiddleware.authenticate as RequestHandler,
-            AuthMiddleware.requireClearance('NATO SECRET') as RequestHandler
-        );
-
-        this.app.get('/api/monitoring/partners/:partnerId/metrics',
-            this.createAuthenticatedHandler((req, res) => 
-                monitoringController.getPartnerMetrics(req, res)
-            )
-        );
-
-        this.app.get('/api/monitoring/health/alerts',
-            this.createAuthenticatedHandler((req, res) => 
-                monitoringController.getHealthAlerts(req, res)
-            )
+        // API routes
+        this.app.use(
+            '/api/documents',
+            AuthMiddleware.authenticate,
+            DocumentRoutes.getInstance().getRouter()
         );
     }
 
@@ -217,41 +142,59 @@ class App {
         // Global error handler
         this.app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
             const error = err as AuthError;
-            
-            this.logger.error('Unhandled error', {
+
+            this.logger.error('Unhandled error:', {
                 error,
-                requestId: req.headers['x-request-id'],
-                path: req.path
+                path: req.path,
+                method: req.method,
+                requestId: req.headers['x-request-id']
             });
 
             res.status(error.statusCode || 500).json({
                 error: error.message || 'Internal server error',
-                code: error.code || 'ERR500'
+                code: error.code || 'ERR500',
+                requestId: req.headers['x-request-id']
             });
         });
     }
 
     public async start(): Promise<void> {
         try {
+            // Initialize database connection
             await this.db.connect();
             this.logger.info('Database connection established');
 
+            // Initialize OPA connection
+            await this.opa.validateConnection();
+            this.logger.info('OPA connection established');
+
+            // Start server
             const server = this.app.listen(config.port, () => {
-                this.logger.info(`Server is running on port ${config.port}`);
+                this.logger.info(`Server running on port ${config.port}`);
             });
 
             // Graceful shutdown
-            process.on('SIGTERM', () => {
-                this.logger.info('SIGTERM received, shutting down gracefully');
+            const shutdown = async () => {
+                this.logger.info('Shutting down server...');
+
                 server.close(async () => {
-                    await this.db.connect();
-                    this.logger.info('Server closed');
+                    await this.db.disconnect();
+                    this.logger.info('Server shutdown complete');
                     process.exit(0);
                 });
-            });
+
+                // Force shutdown after timeout
+                setTimeout(() => {
+                    this.logger.error('Forced shutdown due to timeout');
+                    process.exit(1);
+                }, 30000);
+            };
+
+            process.on('SIGTERM', shutdown);
+            process.on('SIGINT', shutdown);
 
         } catch (error) {
-            this.logger.error('Failed to start server', { error });
+            this.logger.error('Failed to start server:', error);
             process.exit(1);
         }
     }

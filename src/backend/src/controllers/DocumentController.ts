@@ -6,8 +6,9 @@ import { DatabaseService } from '../services/DatabaseService';
 import { OPAService } from '../services/OPAService';
 import { LoggerService } from '../services/LoggerService';
 import { DocumentStorageService } from '../services/DocumentStorageService';
+import { SecurityValidationService } from '../services/SecurityValidationService';
 import { MetricsService } from '../services/MetricsService';
-import { 
+import {
     AuthenticatedRequest,
     DocumentSearchQuery,
     NATODocument,
@@ -27,15 +28,17 @@ export class DocumentController {
     private readonly db: DatabaseService;
     private readonly opa: OPAService;
     private readonly logger: LoggerService;
+    private readonly storage: DocumentStorageService;
+    private readonly security: SecurityValidationService;
     private readonly metrics: MetricsService;
-    private readonly storageService: DocumentStorageService;
 
     private constructor() {
         this.db = DatabaseService.getInstance();
         this.opa = OPAService.getInstance();
         this.logger = LoggerService.getInstance();
+        this.storage = DocumentStorageService.getInstance();
+        this.security = SecurityValidationService.getInstance();
         this.metrics = MetricsService.getInstance();
-        this.storageService = DocumentStorageService.getInstance();
     }
 
     public static getInstance(): DocumentController {
@@ -54,18 +57,16 @@ export class DocumentController {
         try {
             const documentId = req.params.id;
 
-            // Validate document ID format
             if (!ObjectId.isValid(documentId)) {
-                throw this.createError('Invalid document ID format', 400, 'DOC001');
+                throw this.createError('Invalid document ID', 400, 'DOC001');
             }
 
             const document = await this.db.getDocument(documentId);
-            
             if (!document) {
                 throw this.createError('Document not found', 404, 'DOC002');
             }
 
-            // Check access permissions using OPA
+            // Validate security access
             const accessResult = await this.opa.evaluateAccess(
                 req.userAttributes,
                 {
@@ -75,48 +76,39 @@ export class DocumentController {
                     lacvCode: document.lacvCode
                 }
             );
-            
+
             if (!accessResult.allow) {
-                this.logger.warn('Access denied', {
+                this.logger.warn('Document access denied', {
                     userId: req.userAttributes.uniqueIdentifier,
                     documentId,
                     reason: accessResult.reason
                 });
-
-                throw this.createError('Access denied', 403, 'DOC003', { reason: accessResult.reason });
+                throw this.createError('Access denied', 403, 'DOC003');
             }
 
-            // Record metrics
-            this.metrics.recordDocumentAccess(document.clearance, true);
-            this.metrics.recordHttpRequest(req.method, req.path, 200, Date.now() - startTime);
+            // Retrieve document content
+            const content = await this.storage.retrieveDocument(documentId);
 
-            // Log successful access
+            // Record metrics
+            await this.metrics.recordDocumentAccess(
+                document.clearance as ClearanceLevel,
+                true
+            );
+
             this.logger.info('Document accessed', {
                 userId: req.userAttributes.uniqueIdentifier,
                 documentId,
+                clearance: document.clearance,
                 duration: Date.now() - startTime
             });
 
-            res.json({ document });
+            res.json({
+                document,
+                content: content.content
+            });
 
         } catch (error) {
-            const typedError = asAuthError(error);
-            
-            this.logger.error('Error retrieving document', {
-                error: typedError,
-                userId: req.userAttributes.uniqueIdentifier,
-                documentId: req.params.id
-            });
-
-            // Record failed access attempt if appropriate
-            if (typedError.code === 'DOC003') {
-                this.metrics.recordDocumentAccess(typedError.details?.clearance || 'UNKNOWN', false);
-            }
-
-            res.status(typedError.statusCode || 500).json({ 
-                error: typedError.message || 'Internal server error',
-                code: typedError.code || 'DOC000'
-            });
+            this.handleError(error, req, res);
         }
     }
 
@@ -144,7 +136,7 @@ export class DocumentController {
                     order: sortOrder === -1 ? 'desc' : 'asc'
                 }
             });
-            
+
             // Filter documents based on user's security attributes
             const accessibleDocuments = await Promise.all(
                 documents.data.map(async (doc: NATODocument) => {
@@ -190,14 +182,14 @@ export class DocumentController {
 
         } catch (error) {
             const typedError = asAuthError(error);
-            
+
             this.logger.error('Error searching documents', {
                 error: typedError,
                 userId: req.userAttributes.uniqueIdentifier,
                 query: req.body.query
             });
 
-            res.status(typedError.statusCode || 500).json({ 
+            res.status(typedError.statusCode || 500).json({
                 error: typedError.message || 'Internal server error',
                 code: typedError.code || 'DOC000'
             });
@@ -248,7 +240,7 @@ export class DocumentController {
 
         } catch (error) {
             const typedError = asAuthError(error);
-            
+
             this.logger.error('Error creating document', {
                 error: typedError,
                 userId: userAttributes.uniqueIdentifier
@@ -266,35 +258,34 @@ export class DocumentController {
         const startTime = Date.now();
         try {
             const documentId = req.params.id;
-            
+
             if (!ObjectId.isValid(documentId)) {
-                throw this.createError('Invalid document ID format', 400, 'DOC001');
+                throw this.createError('Invalid document ID', 400, 'DOC001');
             }
 
             const existingDocument = await this.db.getDocument(documentId);
-            
             if (!existingDocument) {
                 throw this.createError('Document not found', 404, 'DOC002');
             }
 
-            // Check update permissions using OPA
-            const updateResult = await this.opa.evaluateUpdateAccess(
-                req.userAttributes,
-                existingDocument
+            // Validate security modifications
+            const modificationResult = await this.security.validateSecurityModification(
+                existingDocument,
+                req.body,
+                req.userAttributes
             );
 
-            if (!updateResult.allow) {
+            if (!modificationResult.valid) {
                 throw this.createError(
-                    'Insufficient permissions to update document',
-                    403,
-                    'DOC005',
-                    { reason: updateResult.reason }
+                    'Invalid security modifications',
+                    400,
+                    'DOC006',
+                    { errors: modificationResult.errors }
                 );
             }
 
-            const updatedData = this.validateDocumentData(req.body);
             const updatedDocument = await this.db.updateDocument(documentId, {
-                ...updatedData,
+                ...req.body,
                 metadata: {
                     ...existingDocument.metadata,
                     lastModified: new Date(),
@@ -304,30 +295,22 @@ export class DocumentController {
             });
 
             // Record metrics
-            this.metrics.recordHttpRequest(req.method, req.path, 200, Date.now() - startTime);
+            await this.metrics.recordDocumentAccess(
+                updatedDocument.clearance as ClearanceLevel,
+                true,
+                { operation: 'update' }
+            );
 
             this.logger.info('Document updated', {
                 userId: req.userAttributes.uniqueIdentifier,
                 documentId,
-                version: updatedDocument?.metadata?.version,
-                duration: Date.now() - startTime
+                version: updatedDocument.metadata.version
             });
 
             res.json({ document: updatedDocument });
 
         } catch (error) {
-            const typedError = asAuthError(error);
-            
-            this.logger.error('Error updating document', {
-                error: typedError,
-                userId: req.userAttributes.uniqueIdentifier,
-                documentId: req.params.id
-            });
-
-            res.status(typedError.statusCode || 500).json({
-                error: typedError.message || 'Internal server error',
-                code: typedError.code || 'DOC000'
-            });
+            this.handleError(error, req, res);
         }
     }
 
@@ -472,7 +455,7 @@ export class DocumentController {
 
     private validateDocumentData(data: any): Partial<NATODocument> {
         const validatedData: Partial<NATODocument> = {};
-        
+
         if (!data.title || typeof data.title !== 'string') {
             throw this.createError('Invalid document title', 400, 'DOC006');
         }
@@ -554,14 +537,14 @@ export class DocumentController {
     }
 
     private isValidCoiTag(tag: string): boolean {
-      const validTags = ['OpAlpha', 'OpBravo', 'OpGamma', 'MissionX', 'MissionZ'];
-      return typeof tag === 'string' && validTags.includes(tag);
-  }
+        const validTags = ['OpAlpha', 'OpBravo', 'OpGamma', 'MissionX', 'MissionZ'];
+        return typeof tag === 'string' && validTags.includes(tag);
+    }
 
-  private isValidLacvCode(code: string): boolean {
-      const validCodes = ['LACV001', 'LACV002', 'LACV003', 'LACV004'];
-      return typeof code === 'string' && validCodes.includes(code);
-  }
+    private isValidLacvCode(code: string): boolean {
+        const validCodes = ['LACV001', 'LACV002', 'LACV003', 'LACV004'];
+        return typeof code === 'string' && validCodes.includes(code);
+    }
 
 
     /**
@@ -576,186 +559,202 @@ export class DocumentController {
      * @returns Properly formatted AuthError object
      */
     private createStorageError(
-      message: string,
-      statusCode: number,
-      code: string,
-      details?: Record<string, unknown>
-  ): AuthError {
-      const error = new Error(message) as AuthError;
-      error.statusCode = statusCode;
-      error.code = code;
-      
-      // Add storage-specific metadata to the error
-      error.details = {
-          timestamp: new Date(),
-          ...details,
-          storageOperation: true
-      };
-      
-      // Log the error for monitoring
-      this.logger.error('Document storage error:', {
-          message,
-          code,
-          statusCode,
-          details
-      });
+        message: string,
+        statusCode: number,
+        code: string,
+        details?: Record<string, unknown>
+    ): AuthError {
+        const error = new Error(message) as AuthError;
+        error.statusCode = statusCode;
+        error.code = code;
 
-      return error;
-  }
+        // Add storage-specific metadata to the error
+        error.details = {
+            timestamp: new Date(),
+            ...details,
+            storageOperation: true
+        };
 
-  /**
-   * Validates document metadata to ensure all required fields are present
-   * and properly formatted according to NATO standards.
-   */
-  private validateMetadata(metadata: any): ValidationResult {
-      const errors: string[] = [];
-      const warnings: string[] = [];
+        // Log the error for monitoring
+        this.logger.error('Document storage error:', {
+            message,
+            code,
+            statusCode,
+            details
+        });
 
-      // Check required fields
-      if (!metadata.createdBy) {
-          errors.push('Missing document creator identifier');
-      }
+        return error;
+    }
 
-      if (!metadata.version || typeof metadata.version !== 'number') {
-          errors.push('Invalid or missing document version');
-      }
+    /**
+     * Validates document metadata to ensure all required fields are present
+     * and properly formatted according to NATO standards.
+     */
+    private validateMetadata(metadata: any): ValidationResult {
+        const errors: string[] = [];
+        const warnings: string[] = [];
 
-      // Check dates
-      try {
-          new Date(metadata.createdAt);
-          new Date(metadata.lastModified);
-      } catch (error) {
-          errors.push('Invalid date format in metadata');
-      }
+        // Check required fields
+        if (!metadata.createdBy) {
+            errors.push('Missing document creator identifier');
+        }
 
-      // Check version sequence
-      if (metadata.version < 1) {
-          errors.push('Document version must be greater than 0');
-      }
+        if (!metadata.version || typeof metadata.version !== 'number') {
+            errors.push('Invalid or missing document version');
+        }
 
-      return {
-          valid: errors.length === 0,
-          errors,
-          warnings
-      };
-  }
+        // Check dates
+        try {
+            new Date(metadata.createdAt);
+            new Date(metadata.lastModified);
+        } catch (error) {
+            errors.push('Invalid date format in metadata');
+        }
 
-  /**
-   * Sanitizes document content to ensure it meets security requirements
-   * and doesn't contain any restricted content patterns.
-   */
-  private sanitizeContent(content: any): DocumentContent {
-      return {
-          location: content.location,
-          hash: content.hash,
-          mimeType: content.mimeType,
-          size: content.size ? parseInt(content.size.toString()) : undefined
-      };
-  }
+        // Check version sequence
+        if (metadata.version < 1) {
+            errors.push('Document version must be greater than 0');
+        }
 
-  /**
-   * Validates and processes document relationships and references
-   * to maintain data integrity and security context.
-   */
-  private async validateDocumentRelationships(
-      documentId: string,
-      relationships: any[]
-  ): Promise<ValidationResult> {
-      const errors: string[] = [];
-      const warnings: string[] = [];
+        return {
+            valid: errors.length === 0,
+            errors,
+            warnings
+        };
+    }
 
-      try {
-          // Validate each related document exists and is accessible
-          for (const relation of relationships) {
-              if (!ObjectId.isValid(relation.documentId)) {
-                  errors.push(`Invalid related document ID: ${relation.documentId}`);
-                  continue;
-              }
+    /**
+     * Sanitizes document content to ensure it meets security requirements
+     * and doesn't contain any restricted content patterns.
+     */
+    private sanitizeContent(content: any): DocumentContent {
+        return {
+            location: content.location,
+            hash: content.hash,
+            mimeType: content.mimeType,
+            size: content.size ? parseInt(content.size.toString()) : undefined
+        };
+    }
 
-              const relatedDoc = await this.db.getDocument(relation.documentId);
-              if (!relatedDoc) {
-                  errors.push(`Related document not found: ${relation.documentId}`);
-                  continue;
-              }
+    /**
+     * Validates and processes document relationships and references
+     * to maintain data integrity and security context.
+     */
+    private async validateDocumentRelationships(
+        documentId: string,
+        relationships: any[]
+    ): Promise<ValidationResult> {
+        const errors: string[] = [];
+        const warnings: string[] = [];
 
-              // Check for clearance level compatibility
-              if (this.getClearanceLevel(relatedDoc.clearance) > 
-                  this.getClearanceLevel(documentId as ClearanceLevel)) {
-                  errors.push(
-                      `Invalid relationship: related document has higher clearance`
-                  );
-              }
-          }
-      } catch (error) {
-          errors.push('Error validating document relationships');
-          this.logger.error('Relationship validation error:', error);
-      }
+        try {
+            // Validate each related document exists and is accessible
+            for (const relation of relationships) {
+                if (!ObjectId.isValid(relation.documentId)) {
+                    errors.push(`Invalid related document ID: ${relation.documentId}`);
+                    continue;
+                }
 
-      return {
-          valid: errors.length === 0,
-          errors,
-          warnings
-      };
-  }
+                const relatedDoc = await this.db.getDocument(relation.documentId);
+                if (!relatedDoc) {
+                    errors.push(`Related document not found: ${relation.documentId}`);
+                    continue;
+                }
 
-  /**
-   * Converts clearance level to numeric value for comparison
-   */
-  private getClearanceLevel(clearance: ClearanceLevel): number {
-      const levels: Record<ClearanceLevel, number> = {
-          'UNCLASSIFIED': 0,
-          'RESTRICTED': 1,
-          'NATO CONFIDENTIAL': 2,
-          'NATO SECRET': 3,
-          'COSMIC TOP SECRET': 4
-      };
-      return levels[clearance];
-  }
+                // Check for clearance level compatibility
+                if (this.getClearanceLevel(relatedDoc.clearance) >
+                    this.getClearanceLevel(documentId as ClearanceLevel)) {
+                    errors.push(
+                        `Invalid relationship: related document has higher clearance`
+                    );
+                }
+            }
+        } catch (error) {
+            errors.push('Error validating document relationships');
+            this.logger.error('Relationship validation error:', error);
+        }
 
-  /**
-   * Checks if a given operation would violate NATO security policies
-   */
-  private async validateSecurityPolicy(
-      document: Partial<NATODocument>,
-      userAttributes: UserAttributes
-  ): Promise<ValidationResult> {
-      const errors: string[] = [];
-      const warnings: string[] = [];
+        return {
+            valid: errors.length === 0,
+            errors,
+            warnings
+        };
+    }
 
-      // Validate clearance compatibility
-      if (document.clearance && 
-          !this.hasAdequateClearance(userAttributes.clearance, document.clearance)) {
-          errors.push('User clearance insufficient for document classification');
-      }
+    /**
+     * Converts clearance level to numeric value for comparison
+     */
+    private getClearanceLevel(clearance: ClearanceLevel): number {
+        const levels: Record<ClearanceLevel, number> = {
+            'UNCLASSIFIED': 0,
+            'RESTRICTED': 1,
+            'NATO CONFIDENTIAL': 2,
+            'NATO SECRET': 3,
+            'COSMIC TOP SECRET': 4
+        };
+        return levels[clearance];
+    }
 
-      // Validate releasability markers
-      if (document.releasableTo?.length === 0) {
-          errors.push('Document must have at least one releasability marker');
-      }
+    /**
+     * Checks if a given operation would violate NATO security policies
+     */
+    private async validateSecurityPolicy(
+        document: Partial<NATODocument>,
+        userAttributes: UserAttributes
+    ): Promise<ValidationResult> {
+        const errors: string[] = [];
+        const warnings: string[] = [];
 
-      // Validate COI tag requirements
-      if (document.coiTags && document.coiTags.length > 0) {
-          const hasValidCoi = document.coiTags.every(tag => 
-              userAttributes.coiTags?.includes(tag)
-          );
-          if (!hasValidCoi) {
-              errors.push('User lacks required COI memberships');
-          }
-      }
+        // Validate clearance compatibility
+        if (document.clearance &&
+            !this.hasAdequateClearance(userAttributes.clearance, document.clearance)) {
+            errors.push('User clearance insufficient for document classification');
+        }
 
-      // Validate LACV code requirements
-      if (document.lacvCode && 
-          document.lacvCode !== userAttributes.lacvCode &&
-          userAttributes.clearance !== 'COSMIC TOP SECRET') {
-          errors.push('User lacks required LACV code access');
-      }
+        // Validate releasability markers
+        if (document.releasableTo?.length === 0) {
+            errors.push('Document must have at least one releasability marker');
+        }
 
-      return {
-          valid: errors.length === 0,
-          errors,
-          warnings
-      };
-  }
+        // Validate COI tag requirements
+        if (document.coiTags && document.coiTags.length > 0) {
+            const hasValidCoi = document.coiTags.every(tag =>
+                userAttributes.coiTags?.includes(tag)
+            );
+            if (!hasValidCoi) {
+                errors.push('User lacks required COI memberships');
+            }
+        }
+
+        // Validate LACV code requirements
+        if (document.lacvCode &&
+            document.lacvCode !== userAttributes.lacvCode &&
+            userAttributes.clearance !== 'COSMIC TOP SECRET') {
+            errors.push('User lacks required LACV code access');
+        }
+
+        return {
+            valid: errors.length === 0,
+            errors,
+            warnings
+        };
+    }
+
+    private handleError(error: unknown, req: AuthenticatedRequest, res: Response): void {
+        const typedError = error as AuthError;
+
+        this.logger.error('Document operation error:', {
+            error: typedError,
+            userId: req.userAttributes?.uniqueIdentifier,
+            documentId: req.params.id
+        });
+
+        res.status(typedError.statusCode || 500).json({
+            error: typedError.message || 'Internal server error',
+            code: typedError.code || 'DOC000',
+            details: typedError.details
+        });
+    }
 }
 
 export default DocumentController.getInstance();
