@@ -3,6 +3,7 @@ import { Partner } from '@prisma/client';
 import { prisma } from '../db';
 import { logger } from '../utils/logger';
 import { Metrics } from './metricsService';
+import { AlertService } from './alertService';
 
 interface HealthCheckResult {
     partnerId: string;
@@ -15,9 +16,11 @@ interface HealthCheckResult {
 export class HealthCheckService {
     private metrics: Metrics;
     private checkInterval: NodeJS.Timeout;
+    private alertService: AlertService;
 
     constructor() {
         this.metrics = new Metrics();
+        this.alertService = new AlertService();
         this.startHealthChecks();
     }
 
@@ -60,6 +63,9 @@ export class HealthCheckService {
 
             // Update partner status in database
             await this.updatePartnerStatus(partner.id, result);
+
+            // Handle alerts
+            await this.alertService.handleHealthCheckResult(partner, result);
 
             return result;
         } catch (error) {

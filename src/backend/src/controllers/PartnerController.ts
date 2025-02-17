@@ -11,6 +11,8 @@ import { AuthenticatedRequest, AuthError } from '../types';
 import { SAML2Client } from '../services/SAML2Client';
 import { FederationMonitoringService } from '../services/FederationMonitoringService';
 import { PartnerDomainService } from '../services/partnerDomainService';
+import { FederationAuthService } from '../services/federationAuthService';
+import { KeycloakFederationService } from '../services/keycloakFederationService';
 
 export class PartnerController {
     private static instance: PartnerController;
@@ -22,6 +24,8 @@ export class PartnerController {
     private samlClient: SAML2Client;
     private monitoringService: FederationMonitoringService;
     private partnerDomainService: PartnerDomainService;
+    private federationAuth: FederationAuthService;
+    private keycloakFederation: KeycloakFederationService;
 
     private constructor() {
         this.federationService = FederationPartnerService.getInstance();
@@ -32,6 +36,8 @@ export class PartnerController {
         this.samlClient = SAML2Client.getInstance();
         this.monitoringService = FederationMonitoringService.getInstance();
         this.partnerDomainService = new PartnerDomainService();
+        this.federationAuth = new FederationAuthService();
+        this.keycloakFederation = new KeycloakFederationService();
     }
 
     public static getInstance(): PartnerController {
@@ -395,6 +401,43 @@ export class PartnerController {
 
         // Remove partner subdomain
         await this.partnerDomainService.removePartnerDomain(partner);
+
+        return partner;
+    }
+
+    async registerPartner(req: Request): Promise<Partner> {
+        const {
+            name,
+            endpoint,
+            federationConfig
+        } = req.body;
+
+        // Validate federation config
+        if (!federationConfig || !['SAML', 'OIDC'].includes(federationConfig.protocol)) {
+            throw new Error('Invalid federation configuration');
+        }
+
+        // Create partner
+        const partner = await prisma.partner.create({
+            data: {
+                name,
+                endpoint,
+                status: 'PENDING',
+                federationProtocol: federationConfig.protocol
+            }
+        });
+
+        // Setup federation
+        await this.federationAuth.setupPartnerFederation(
+            partner,
+            federationConfig
+        );
+
+        // Set up Keycloak federation
+        await this.keycloakFederation.createIdpConfiguration(
+            partner,
+            federationConfig
+        );
 
         return partner;
     }
