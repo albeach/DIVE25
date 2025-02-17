@@ -59,23 +59,60 @@ deploy_docker_containers() {
     export DOCKER_BUILDKIT=1
     export COMPOSE_DOCKER_CLI_BUILD=1
 
+    # Setup wait-for-it script
+    setup_wait_for_it
+
     # Create .env file for Docker Compose with proper permissions
     cat << EOL > "${SCRIPT_DIR}/.env"
 COMPOSE_PROJECT_NAME=dive25
 EOL
     chmod 600 "${SCRIPT_DIR}/.env"
 
-    # Deploy containers
+    # Deploy containers with proper waiting
     if [[ "$(uname)" == "Darwin" ]]; then
         # MacOS: run without sudo
-        docker compose -f "${SCRIPT_DIR}/docker-compose.yml" down --remove-orphans
-        docker compose -f "${SCRIPT_DIR}/docker-compose.yml" pull
-        docker compose -f "${SCRIPT_DIR}/docker-compose.yml" up -d
+        docker compose -f "${SCRIPT_DIR}/docker-compose.yml" \
+                      -f "${SCRIPT_DIR}/docker-compose.${environment}.yml" down --remove-orphans
+
+        # Start core services first
+        docker compose -f "${SCRIPT_DIR}/docker-compose.yml" \
+                      -f "${SCRIPT_DIR}/docker-compose.${environment}.yml" up -d pingdirectory
+        
+        # Wait for PingDirectory
+        "${SCRIPT_DIR}/scripts/wait-for-it.sh" localhost:1389 -t 120
+
+        # Start PingFederate
+        docker compose -f "${SCRIPT_DIR}/docker-compose.yml" \
+                      -f "${SCRIPT_DIR}/docker-compose.${environment}.yml" up -d pingfederate
+        
+        # Wait for PingFederate
+        "${SCRIPT_DIR}/scripts/wait-for-it.sh" localhost:9031 -t 120
+
+        # Start remaining services
+        docker compose -f "${SCRIPT_DIR}/docker-compose.yml" \
+                      -f "${SCRIPT_DIR}/docker-compose.${environment}.yml" up -d
     else
         # Linux: use sudo
-        sudo docker compose -f "${SCRIPT_DIR}/docker-compose.yml" down --remove-orphans
-        sudo docker compose -f "${SCRIPT_DIR}/docker-compose.yml" pull
-        sudo docker compose -f "${SCRIPT_DIR}/docker-compose.yml" up -d
+        sudo docker compose -f "${SCRIPT_DIR}/docker-compose.yml" \
+                           -f "${SCRIPT_DIR}/docker-compose.${environment}.yml" down --remove-orphans
+
+        # Start core services first
+        sudo docker compose -f "${SCRIPT_DIR}/docker-compose.yml" \
+                           -f "${SCRIPT_DIR}/docker-compose.${environment}.yml" up -d pingdirectory
+        
+        # Wait for PingDirectory
+        sudo "${SCRIPT_DIR}/scripts/wait-for-it.sh" localhost:1389 -t 120
+
+        # Start PingFederate
+        sudo docker compose -f "${SCRIPT_DIR}/docker-compose.yml" \
+                           -f "${SCRIPT_DIR}/docker-compose.${environment}.yml" up -d pingfederate
+        
+        # Wait for PingFederate
+        sudo "${SCRIPT_DIR}/scripts/wait-for-it.sh" localhost:9031 -t 120
+
+        # Start remaining services
+        sudo docker compose -f "${SCRIPT_DIR}/docker-compose.yml" \
+                           -f "${SCRIPT_DIR}/docker-compose.${environment}.yml" up -d
     fi
 
     # Check if deployment was successful
@@ -84,39 +121,6 @@ EOL
         docker compose -f "${SCRIPT_DIR}/docker-compose.yml" logs
         exit 1
     fi
-
-# Add WordPress setup to deploy_docker_containers()
-
-setup_wordpress() {
-    local environment=$1
-    
-    log "INFO" "Setting up WordPress environment"
-    
-    # Create required directories
-    mkdir -p "${SCRIPT_DIR}/wordpress/plugins/dive25-integration"
-    mkdir -p "${SCRIPT_DIR}/wordpress/themes/dive25"
-    
-    # Copy our custom plugin
-    cp -r "${SCRIPT_DIR}/src/wordpress/plugins/dive25-integration/"* \
-        "${SCRIPT_DIR}/wordpress/plugins/dive25-integration/"
-    
-    # Set proper permissions
-    chmod -R 755 "${SCRIPT_DIR}/wordpress"
-    
-    # Generate WordPress salts securely
-    local wp_config="${SCRIPT_DIR}/wordpress/wp-config.php"
-    if [[ ! -f "$wp_config" ]]; then
-        curl -s https://api.wordpress.org/secret-key/1.1/salt/ > wp-salts.txt
-        # We'll use these salts in our WordPress configuration
-    fi
-}
-
-# Add this to the main deployment flow
-if [[ "$environment" == "prod" ]]; then
-    setup_wordpress "prod"
-else
-    setup_wordpress "dev"
-fi
 
     # Validate requirements and verify deployment
     validate_container_requirements "$environment"
@@ -132,51 +136,6 @@ validate_container_requirements() {
     check_system_resources
 }
 
-check_system_resources() {
-    log "INFO" "Checking system resources"
-
-    # Check available disk space in a cross-platform way
-    local available_space
-    if [[ "$(uname)" == "Darwin" ]]; then
-        available_space=$(df -k . | awk 'NR==2 {print $4}')
-    else
-        available_space=$(df -P . | awk 'NR==2 {print $4}')
-    fi
-
-    if [ "$available_space" -lt 10485760 ]; then  # 10GB in KB
-        log "ERROR" "Insufficient disk space. At least 10GB required"
-        exit 1
-    fi
-
-    # Check available memory in a cross-platform way
-    local available_memory
-    if [[ "$(uname)" == "Darwin" ]]; then
-        local page_size=$(pagesize)
-        local free_pages=$(vm_stat | awk '/free/ {gsub(/\./, "", $3); print $3}')
-        available_memory=$((free_pages * page_size / 1024 / 1024))
-    else
-        available_memory=$(free -m | awk 'NR==2 {print $7}')
-    fi
-
-    # Set memory requirements based on environment
-    local required_memory
-    if [[ "$environment" == "prod" ]]; then
-        required_memory=4096  # 4GB for production
-    else
-        required_memory=2048  # 2GB for development
-    fi
-
-    # Check for memory requirements unless SKIP_MEMORY_CHECK is set
-    if [[ -n "${SKIP_MEMORY_CHECK}" ]]; then
-        log "WARN" "Skipping memory check. This might affect system stability"
-        return 0
-    elif [ "$available_memory" -lt "$required_memory" ]; then
-        log "ERROR" "Insufficient memory. At least ${required_memory}MB required"
-        log "INFO" "To bypass this check, run the script with SKIP_MEMORY_CHECK=true"
-        exit 1
-    fi
-}
-
 verify_container_deployment() {
     local environment=$1
     
@@ -184,6 +143,16 @@ verify_container_deployment() {
     
     # Wait for services to be ready
     wait_for_services
+    
+    # Monitor core services
+    monitor_container_startup "pingdirectory" "1389" "120" || exit 1
+    monitor_container_startup "pingfederate" "9031" "120" || exit 1
+    monitor_container_startup "pingaccess" "3000" "120" || exit 1
+    
+    if [[ "$environment" == "prod" ]]; then
+        monitor_container_startup "mariadb" "3306" "60" || exit 1
+        monitor_container_startup "mongodb" "27017" "60" || exit 1
+    fi
     
     # Check container health status
     local unhealthy_containers=$(docker ps --filter "health=unhealthy" --format "{{.Names}}")
@@ -245,4 +214,20 @@ verify_service_connectivity() {
         log "ERROR" "Cannot connect to PingDirectory LDAPS"
         exit 1
     }
+}
+
+monitor_container_startup() {
+    local container_name=$1
+    local port=$2
+    local timeout=$3
+    
+    log "INFO" "Monitoring startup of ${container_name} on port ${port}"
+    
+    if "${SCRIPT_DIR}/scripts/wait-for-it.sh" "localhost:${port}" -t "${timeout}"; then
+        log "INFO" "${container_name} is available on port ${port}"
+        return 0
+    else
+        log "ERROR" "Failed to connect to ${container_name} on port ${port}"
+        return 1
+    fi
 }

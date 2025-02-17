@@ -25,7 +25,7 @@ services:
   pingaccess:
     image: pingidentity/pingaccess:8.2.0-latest
     environment:
-      PA_ADMIN_PASSWORD_INITIAL: "2FederateM0re"
+      PA_ADMIN_PASSWORD_INITIAL: "2Access"
     volumes:
       - ./licenses:/opt/in/instance/conf
       - ./server-profiles/pingaccess/instance:/opt/in/instance

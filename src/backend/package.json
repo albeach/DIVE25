@@ -6,10 +6,15 @@
   "scripts": {
     "clean": "rm -rf dist",
     "build": "npm run clean && tsc -p tsconfig.json",
+    "build:dev": "npm run build -- --sourceMap",
+    "build:prod": "tsc -p tsconfig.prod.json",
     "dev": "ts-node src/app.ts",
     "start": "node dist/app.js",
+    "start:prod": "NODE_ENV=production node dist/app.js",
     "test": "jest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "cache:clear": "rm -rf node_modules/.cache",
+    "preinstall": "node -e \"if(process.env.npm_execpath.indexOf('yarn')===-1)process.exit(1)\" || echo \"Please use npm instead of yarn\""
   },
   "dependencies": {
     "@open-policy-agent/opa-wasm": "^1.10.0",
