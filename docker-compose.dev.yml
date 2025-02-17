@@ -1,29 +1,49 @@
+version: '3.8'
+
 services:
-  pingfederate:
-    container_name: pingfederate
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
     ports:
-      - "9999:9999"  # Admin console
-      - "9031:9031"  # Runtime port
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
     environment:
-      - PF_LOG_LEVEL=DEBUG
-      - SERVER_PROFILE_PATH=server-profiles/pingfederate
-      - SERVER_PROFILE_BRANCH=develop
+      - NODE_ENV=development
+      - VITE_API_URL=http://localhost:6969
+      - VITE_KEYCLOAK_URL=http://localhost:8080
+      - VITE_KEYCLOAK_REALM=dive25
+      - VITE_KEYCLOAK_CLIENT_ID=dive25-frontend-dev
 
-  pingaccess:
-    container_name: pingaccess
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile.dev
     ports:
-      - "9000:9000"  # Admin console
-      - "3000:3000"  # Runtime port
+      - "6969:6969"
+    volumes:
+      - ./api:/app
+      - /app/node_modules
     environment:
-      - PA_LOG_LEVEL=DEBUG
-      - SERVER_PROFILE_PATH=server-profiles/pingaccess
-      - SERVER_PROFILE_BRANCH=develop
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://dive25:dive25@db:5432/dive25_dev
+      - KEYCLOAK_URL=http://keycloak:8080
+      - KEYCLOAK_REALM=dive25
+      - KEYCLOAK_CLIENT_ID=dive25-api-dev
+      - KEYCLOAK_CLIENT_SECRET=development_secret
 
-  pingdirectory:
-    container_name: pingdirectory
+  db:
+    image: postgres:14-alpine
     ports:
-      - "1636:636"   # LDAPS
-      - "1389:389"   # LDAP
+      - "5432:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
     environment:
-      - SERVER_PROFILE_PATH=server-profiles/pingdirectory
-      - SERVER_PROFILE_BRANCH=develop
+      - POSTGRES_USER=dive25
+      - POSTGRES_PASSWORD=dive25
+      - POSTGRES_DB=dive25_dev
+
+volumes:
+  postgres_dev_data:

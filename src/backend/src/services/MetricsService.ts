@@ -12,6 +12,8 @@ import {
     MetricLabels
 } from '../types';
 import { Counter, Gauge, Histogram } from 'prom-client';
+import { register } from 'prom-client';
+import { HealthCheckResult } from './healthCheckService';
 
 /**
  * Service responsible for collecting, storing, and analyzing system metrics
@@ -77,6 +79,10 @@ export class MetricsService {
     // LACV Metrics
     private readonly lacvChecks: Counter;
     private readonly lacvDenials: Counter;
+
+    private readonly responseTime: Histogram;
+    private readonly healthStatus: Gauge;
+    private readonly lastCheckTime: Gauge;
 
     private constructor() {
         this.logger = LoggerService.getInstance();
@@ -191,6 +197,26 @@ export class MetricsService {
             name: 'dive25_lacv_denials_total',
             help: 'Total number of LACV code denials',
             labelNames: ['code', 'partner_type', 'reason']
+        });
+
+        // New metrics
+        this.responseTime = new Histogram({
+            name: 'partner_response_time_seconds',
+            help: 'Response time of partner endpoints in seconds',
+            labelNames: ['partner_id', 'partner_name'],
+            buckets: [0.1, 0.3, 0.5, 0.7, 1, 2, 5]
+        });
+
+        this.healthStatus = new Gauge({
+            name: 'partner_health_status',
+            help: 'Current health status of partner (0=down, 1=degraded, 2=healthy)',
+            labelNames: ['partner_id', 'partner_name']
+        });
+
+        this.lastCheckTime = new Gauge({
+            name: 'partner_last_check_timestamp',
+            help: 'Timestamp of last health check',
+            labelNames: ['partner_id', 'partner_name']
         });
     }
 
@@ -551,6 +577,31 @@ export class MetricsService {
 
     public updateActivePartnerSessions(partnerType: string, country: string, count: number): void {
         this.activePartnerSessions.set({ partner_type: partnerType, country }, count);
+    }
+
+    recordHealthCheck(partnerId: string, result: HealthCheckResult) {
+        const statusValue =
+            result.status === 'healthy' ? 2 :
+                result.status === 'degraded' ? 1 : 0;
+
+        this.responseTime.observe(
+            { partner_id: partnerId },
+            result.responseTime / 1000
+        );
+
+        this.healthStatus.set(
+            { partner_id: partnerId },
+            statusValue
+        );
+
+        this.lastCheckTime.set(
+            { partner_id: partnerId },
+            result.lastChecked.getTime() / 1000
+        );
+    }
+
+    async getMetrics(): Promise<string> {
+        return register.metrics();
     }
 }
 

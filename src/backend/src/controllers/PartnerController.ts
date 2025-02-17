@@ -10,6 +10,7 @@ import { LoggerService } from '../services/LoggerService';
 import { AuthenticatedRequest, AuthError } from '../types';
 import { SAML2Client } from '../services/SAML2Client';
 import { FederationMonitoringService } from '../services/FederationMonitoringService';
+import { PartnerDomainService } from '../services/partnerDomainService';
 
 export class PartnerController {
     private static instance: PartnerController;
@@ -20,6 +21,7 @@ export class PartnerController {
     private logger: LoggerService;
     private samlClient: SAML2Client;
     private monitoringService: FederationMonitoringService;
+    private partnerDomainService: PartnerDomainService;
 
     private constructor() {
         this.federationService = FederationPartnerService.getInstance();
@@ -29,6 +31,7 @@ export class PartnerController {
         this.logger = LoggerService.getInstance();
         this.samlClient = SAML2Client.getInstance();
         this.monitoringService = FederationMonitoringService.getInstance();
+        this.partnerDomainService = new PartnerDomainService();
     }
 
     public static getInstance(): PartnerController {
@@ -370,6 +373,30 @@ export class PartnerController {
                 throw error;
             }
         }
+    }
+
+    async approvePartner(partnerId: string): Promise<Partner> {
+        const partner = await prisma.partner.update({
+            where: { id: partnerId },
+            data: { status: 'ACTIVE' }
+        });
+
+        // Set up partner subdomain
+        await this.partnerDomainService.setupPartnerDomain(partner);
+
+        return partner;
+    }
+
+    async deactivatePartner(partnerId: string): Promise<Partner> {
+        const partner = await prisma.partner.update({
+            where: { id: partnerId },
+            data: { status: 'INACTIVE' }
+        });
+
+        // Remove partner subdomain
+        await this.partnerDomainService.removePartnerDomain(partner);
+
+        return partner;
     }
 }
 
