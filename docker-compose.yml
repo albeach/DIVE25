@@ -1,102 +1,4 @@
-version: '3.8'
-
 services:
-  # PingFederate handles federation and SSO
-  pingfederate:
-    image: pingidentity/pingfederate:12.2.0-latest
-    environment:
-      PF_ADMIN_USER_PASSWORD: "2FederateM0re"
-      PF_LOG_LEVEL: "INFO"
-    volumes:
-      - ./licenses:/opt/in/instance/server/default/conf
-      - ./server-profiles/pingfederate/instance:/opt/in/instance
-      - ./certificates:/opt/in/certificates
-      - pingfederate-out:/opt/out
-    ports:
-      - "9999:9999"  # Admin console
-      - "9031:9031"  # Runtime port
-    healthcheck:
-      test: ["CMD-SHELL", "/opt/out/instance/bin/status.sh"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    networks:
-      - dive25-net
-
-  # PingAccess provides secure gateway and access control
-  pingaccess:
-    image: pingidentity/pingaccess:8.2.0-latest
-    environment:
-      PA_ADMIN_PASSWORD_INITIAL: "2FederateM0re"
-    volumes:
-      - ./licenses:/opt/in/instance/conf
-      - ./server-profiles/pingaccess/instance:/opt/in/instance
-      - ./certificates:/opt/in/certificates
-      - pingaccess-out:/opt/out
-    ports:
-      - "9000:9000"  # Admin console
-      - "3000:3000"  # Runtime port
-    healthcheck:
-      test: ["CMD-SHELL", "/opt/out/instance/bin/status.sh"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    networks:
-      - dive25-net
-
-  # PingDirectory stores user attributes and organizational data
-  pingdirectory:
-    image: pingidentity/pingdirectory:10.2.0.0-latest
-    environment:
-      PD_ADMIN_USER_PASSWORD: "2FederateM0re"
-    volumes:
-      - ./licenses:/opt/in/pd.profile/server-root/pre-setup
-      - ./server-profiles/pingdirectory/instance:/opt/in/instance
-      - ./certificates:/opt/in/certificates
-      - pingdirectory-out:/opt/out
-    ports:
-      - "1636:636"  # LDAPS
-      - "1389:389"  # LDAP
-    healthcheck:
-      test: ["CMD-SHELL", "/opt/out/instance/bin/status.sh"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    networks:
-      - dive25-net
-
-  # WordPress frontend for document access
-  wordpress:
-    image: wordpress:latest
-    depends_on:
-      - mariadb
-    environment:
-      WORDPRESS_DB_HOST: mariadb
-      WORDPRESS_DB_USER: wordpress
-      WORDPRESS_DB_PASSWORD: ${WP_DB_PASSWORD}
-      WORDPRESS_DB_NAME: wordpress
-      WORDPRESS_CONFIG_EXTRA: |
-        define('WP_SITEURL', 'https://dive25.com/portal');
-        define('WP_HOME', 'https://dive25.com/portal');
-    volumes:
-      - ./wordpress/plugins/dive25-integration:/var/www/html/wp-content/plugins/dive25-integration
-      - ./wordpress/themes/dive25:/var/www/html/wp-content/themes/dive25
-      - wordpress_data:/var/www/html
-    networks:
-      - dive25-net
-
-  mariadb:
-    image: mariadb:10.6
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: wordpress
-      MYSQL_USER: wordpress
-      MYSQL_PASSWORD: ${WP_DB_PASSWORD}
-    volumes:
-      - mariadb_data:/var/lib/mysql
-      - ./config/mariadb/initdb.d:/docker-entrypoint-initdb.d
-    networks:
-      - dive25-net
 
   # MongoDB for document metadata storage
   mongodb:
@@ -262,9 +164,6 @@ networks:
     driver: bridge
 
 volumes:
-  pingfederate-out:
-  pingaccess-out:
-  pingdirectory-out:
   wordpress_data:
   mariadb_data:
   mongodb_data:

@@ -349,3 +349,7 @@ kubectl rollout restart deployment/api -n dive25
 ## License
 DIVE25 is licensed under [MIT License](LICENSE).
 
+# DIVE25 FedHub
+
+## Quick Start (Ubuntu Server)
+
