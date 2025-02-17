@@ -1,0 +1,15 @@
+# Create new Vite project with React and TypeScript
+npm create vite@latest dive25-frontend -- --template react-ts
+
+cd dive25-frontend
+
+# Install core dependencies
+npm install @tanstack/react-query
+npm install @tanstack/react-router
+npm install @headlessui/react
+npm install @heroicons/react
+npm install axios
+npm install tailwindcss postcss autoprefixer
+npm install @tailwindcss/forms
+npm install keycloak-js
+npm install date-fns 

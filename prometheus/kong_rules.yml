@@ -1,0 +1,29 @@
+groups:
+  - name: kong_alerts
+    rules:
+      - alert: KongHighLatency
+        expr: histogram_quantile(0.95, sum(rate(kong_latency_bucket{type="request"}[5m])) by (le)) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kong high latency detected"
+          description: "95th percentile latency is above 1 second"
+
+      - alert: KongHighErrorRate
+        expr: sum(rate(kong_http_requests_total{status=~"5.."}[5m])) / sum(rate(kong_http_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High error rate in Kong"
+          description: "Error rate is above 5%"
+
+      - alert: KongHighRejectionRate
+        expr: sum(increase(kong_rate_limiting_current[5m])) > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High rate of rejected requests"
+          description: "Many requests are being rate limited" 

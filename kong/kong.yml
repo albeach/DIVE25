@@ -5,15 +5,29 @@ services:
   - name: dive25-api
     url: http://api:6969
     routes:
-      - name: api-route
+      - name: api-documents
         paths:
-          - /api
-        strip_path: true
+          - /api/documents
+        strip_path: false
+        methods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+      
+      - name: api-auth
+        paths:
+          - /api/auth
+        strip_path: false
+        methods:
+          - GET
+          - POST
+
     plugins:
       # Authentication
       - name: oidc
         config:
-          client_id: dive25-api
+          client_id: ${KEYCLOAK_CLIENT_ID}
           client_secret: ${KEYCLOAK_CLIENT_SECRET}
           discovery: http://keycloak:8080/realms/dive25/.well-known/openid-configuration
           introspection_endpoint: http://keycloak:8080/realms/dive25/protocol/openid-connect/token/introspect
@@ -26,7 +40,45 @@ services:
             - clearance_level
             - coi_access
 
-      # NATO-specific Security Headers
+      # CORS
+      - name: cors
+        config:
+          origins:
+            - https://dive25.com
+            - http://localhost:3000
+          methods:
+            - GET
+            - POST
+            - PUT
+            - DELETE
+            - OPTIONS
+          headers:
+            - Accept
+            - Accept-Version
+            - Authorization
+            - Content-Length
+            - Content-Type
+            - X-NATO-Federation-ID
+            - X-NATO-Correlation-ID
+          exposed_headers:
+            - X-NATO-Federation-ID
+            - X-NATO-Correlation-ID
+          credentials: true
+          max_age: 3600
+
+      # Rate Limiting
+      - name: rate-limiting
+        config:
+          minute: 60
+          hour: 3600
+          policy: local
+          fault_tolerant: true
+          hide_client_headers: false
+          redis_host: redis
+          redis_port: 6379
+          redis_timeout: 2000
+
+      # Security Headers
       - name: response-transformer
         config:
           add:
@@ -36,69 +88,77 @@ services:
               - "X-Frame-Options: DENY"
               - "Content-Security-Policy: default-src 'self'; frame-ancestors 'none'"
               - "X-XSS-Protection: 1; mode=block"
-              - "X-NATO-Federation-ID: ${FEDERATION_ID}"
-
-      # Rate Limiting by Partner Type
-      - name: rate-limiting
-        config:
-          minute: 600
-          hour: 36000
-          policy: local
-          header_name: X-Federation-Partner
-          limit_by: header
-          fault_tolerant: true
-          hide_client_headers: false
-
-      # IP Restriction (allow only NATO network ranges)
-      - name: ip-restriction
-        config:
-          allow:
-            - 10.0.0.0/8     # NATO Internal
-            - 192.168.0.0/16 # Partner VPNs
-          message: "Access denied: IP not in NATO federation network"
+              - "Referrer-Policy: strict-origin-when-cross-origin"
 
       # Request Size Limiting
       - name: request-size-limiting
         config:
           allowed_payload_size: 10
 
-      # Correlation ID for NATO Audit
-      - name: correlation-id
+      # Request Termination for Maintenance (disabled by default)
+      - name: request-termination
         config:
-          header_name: X-NATO-Correlation-ID
-          generator: uuid#counter
-          echo_downstream: true
+          status_code: 503
+          message: "Service temporarily unavailable"
+        enabled: false
+
+  - name: dive25-health
+    url: http://api:6969/health
+    routes:
+      - name: health-check
+        paths:
+          - /health
+        strip_path: true
+        methods:
+          - GET
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 120  # Allow more frequent health checks
+      - name: prometheus
+        config:
+          status_codes: true
+          latency: true
 
   - name: keycloak
     url: http://keycloak:8080
     routes:
-      - name: keycloak-route
+      - name: auth-route
         paths:
           - /auth
+        strip_path: false
     plugins:
-      # Basic Security Headers
-      - name: response-transformer
+      - name: cors
         config:
-          add:
-            headers:
-              - "Strict-Transport-Security: max-age=31536000"
-              - "X-Content-Type-Options: nosniff"
-              - "X-Frame-Options: DENY"
+          origins:
+            - https://dive25.com
+            - http://localhost:3000
+          methods:
+            - GET
+            - POST
+            - OPTIONS
+          credentials: true
+          max_age: 3600
 
-      # Rate Limiting for Auth Endpoints
-      - name: rate-limiting
-        config:
-          minute: 30
-          hour: 1000
-          policy: local
-          fault_tolerant: true
+consumers:
+  - username: dive25-frontend
+    custom_id: dive25-frontend-app
 
-      # Bot Detection
-      - name: bot-detection
-        config:
-          allow:
-            - "curl"
-            - "PostmanRuntime"
-          deny:
-            - "BadBot"
-            - "*scraper*" 
+  - username: monitoring
+    custom_id: prometheus-metrics
+
+plugins:
+  # Global plugins
+  - name: prometheus
+    config:
+      status_codes: true
+      latency: true
+      upstream_health: true
+      bandwidth: true
+      per_consumer: true
+
+  - name: correlation-id
+    config:
+      header_name: X-NATO-Correlation-ID
+      generator: uuid#counter
+      echo_downstream: true 

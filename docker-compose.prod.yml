@@ -1,108 +1,59 @@
+version: '3.8'
+
 services:
-  fix-cert-permissions:
-    image: busybox
-    command: ["sh", "-c", "chmod -R 755 /certificates/prod"]
-    volumes:
-      - ./certificates/prod:/certificates/prod
-    restart: "no"
-
-  pingfederate:
-    deploy:
-      replicas: 2
-      resources:
-        limits:
-          cpus: '2'
-          memory: 4G
-        reservations:
-          cpus: '1'
-          memory: 2G
-    environment:
-      - PF_LOG_LEVEL=INFO
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
     ports:
-      - "9031:9031"     # Runtime port (SSL)
-      - "9999:9999"    # Admin console (internal only)
-    volumes:
-      - ./certificates/prod:/opt/certificates/prod
-      - ./layered_profiles:/opt/serverprofiles
+      - "80:80"
+      - "443:443"
     depends_on:
-      - fix-cert-permissions
-
-  pingaccess:
-    deploy:
-      replicas: 2
-      resources:
-        limits:
-          cpus: '1'
-          memory: 2G
-        reservations:
-          cpus: '0.5'
-          memory: 1G
-    env_file:
-      - .env
+      - api
     environment:
-      - PA_LOG_LEVEL=INFO
-      - PING_IDENTITY_PASSWORD=${PING_IDENTITY_PASSWORD}
-    ports:
-      - "3000:3000"    # Runtime port
-      - "9000:9000"    # Admin console (internal only)
-    networks:
-      - dive25-net
-    volumes:
-      - ./layered_profiles:/opt/serverprofiles
-    command: ["/run.sh"]
+      - VITE_API_URL=https://api.dive25.com
+      - VITE_KEYCLOAK_URL=https://auth.dive25.com
+      - VITE_KEYCLOAK_REALM=dive25
+      - VITE_KEYCLOAK_CLIENT_ID=dive25-frontend
 
-  pingdirectory:
-    deploy:
-      replicas: 2
-      resources:
-        limits:
-          cpus: '2'
-          memory: 4G
-        reservations:
-          cpus: '1'
-          memory: 2G
-    environment:
-      - PD_LOG_LEVEL=INFO
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile.prod
     ports:
-      - "1636:636"      # LDAPS
-      - "1389:389"      # LDAP
-    volumes:
-      - ./layered_profiles:/opt/serverprofiles
-
-  # Production-only services
-  prometheus:
-    image: prom/prometheus:latest
-    volumes:
-      - ./monitoring/prometheus:/etc/prometheus
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-    ports:
-      - "9090:9090"
-    networks:
-      - dive25-net
-
-  grafana:
-    image: grafana/grafana:latest
-    volumes:
-      - ./monitoring/grafana:/var/lib/grafana
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
-    ports:
-      - "3050:4000"
-    networks:
-      - dive25-net
-    command: ["/run.sh"]
-
-  backend:
-    build: ./src/backend
+      - "6969:6969"
     environment:
       - NODE_ENV=production
+      - DATABASE_URL=postgresql://dive25:${DB_PASSWORD}@db:5432/dive25
+      - KEYCLOAK_URL=https://auth.dive25.com
+      - KEYCLOAK_REALM=dive25
+      - KEYCLOAK_CLIENT_ID=dive25-api
+      - KEYCLOAK_CLIENT_SECRET=${KEYCLOAK_CLIENT_SECRET}
 
+  db:
+    image: postgres:14-alpine
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=dive25
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=dive25
+
+  kong:
+    image: kong:3.4
+    environment:
+      - KONG_DATABASE=off
+      - KONG_PROXY_ACCESS_LOG=/dev/stdout
+      - KONG_ADMIN_ACCESS_LOG=/dev/stdout
+      - KONG_PROXY_ERROR_LOG=/dev/stderr
+      - KONG_ADMIN_ERROR_LOG=/dev/stderr
+      - KONG_ADMIN_LISTEN=0.0.0.0:8001
+      - KONG_DECLARATIVE_CONFIG=/usr/local/kong/declarative/kong.yml
     ports:
-      - "8080:8080"
-    depends_on:
-      - pingfederate
+      - "8000:8000"
+      - "8443:8443"
+    volumes:
+      - ./kong/kong.yml:/usr/local/kong/declarative/kong.yml
 
-networks:
-  dive25-net:
-    driver: bridge
+volumes:
+  postgres_data:

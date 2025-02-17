@@ -1,0 +1,121 @@
+{
+    "annotations": {
+        "list": []
+    },
+    "editable": true,
+    "fiscalYearStartMonth": 0,
+    "graphTooltip": 0,
+    "id": 2,
+    "links": [],
+    "liveNow": false,
+    "panels": [
+        {
+            "title": "Request Rate",
+            "type": "timeseries",
+            "datasource": "Prometheus",
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 0
+            },
+            "targets": [
+                {
+                    "expr": "sum(rate(kong_http_requests_total[5m])) by (service)",
+                    "legendFormat": "{{service}}"
+                }
+            ]
+        },
+        {
+            "title": "Error Rate",
+            "type": "timeseries",
+            "datasource": "Prometheus",
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 0
+            },
+            "targets": [
+                {
+                    "expr": "sum(rate(kong_http_requests_total{status=~\"5..\"}[5m])) by (service)",
+                    "legendFormat": "{{service}} errors"
+                }
+            ]
+        },
+        {
+            "title": "Latency Distribution",
+            "type": "heatmap",
+            "datasource": "Prometheus",
+            "gridPos": {
+                "h": 8,
+                "w": 24,
+                "x": 0,
+                "y": 8
+            },
+            "targets": [
+                {
+                    "expr": "sum(rate(kong_latency_bucket[5m])) by (le)",
+                    "format": "heatmap"
+                }
+            ]
+        },
+        {
+            "title": "Rate Limiting",
+            "type": "timeseries",
+            "datasource": "Prometheus",
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 16
+            },
+            "targets": [
+                {
+                    "expr": "sum(increase(kong_rate_limiting_current[5m])) by (service)",
+                    "legendFormat": "{{service}} limited"
+                }
+            ]
+        },
+        {
+            "title": "Authentication Status",
+            "type": "timeseries",
+            "datasource": "Prometheus",
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 16
+            },
+            "targets": [
+                {
+                    "expr": "sum(rate(kong_http_requests_total{status=~\"401|403\"}[5m])) by (service)",
+                    "legendFormat": "{{service}} auth failures"
+                }
+            ]
+        }
+    ],
+    "refresh": "5s",
+    "schemaVersion": 38,
+    "style": "dark",
+    "tags": [
+        "kong",
+        "api-gateway"
+    ],
+    "templating": {
+        "list": [
+            {
+                "name": "service",
+                "type": "query",
+                "query": "label_values(kong_http_requests_total, service)"
+            }
+        ]
+    },
+    "time": {
+        "from": "now-6h",
+        "to": "now"
+    },
+    "title": "Kong API Gateway Metrics",
+    "uid": "kong-metrics",
+    "version": 1
+}

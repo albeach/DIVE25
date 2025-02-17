@@ -1,0 +1,64 @@
+plugins:
+  - name: oidc
+    attributes:
+      protocols: ["http", "https"]
+      config:
+        client_id:
+          type: string
+          required: true
+        client_secret:
+          type: string
+          required: true
+          encrypted: true
+        discovery:
+          type: string
+          required: true
+        realm:
+          type: string
+          required: true
+        introspection_endpoint:
+          type: string
+          required: true
+        bearer_only:
+          type: boolean
+          default: true
+        timeout:
+          type: number
+          default: 10000
+        ssl_verify:
+          type: boolean
+          default: true
+        verify_claims:
+          type: boolean
+          default: true
+        claims_to_verify:
+          type: array
+          elements:
+            type: string
+          default: ["sub", "countryOfAffiliation", "clearance_level"]
+
+  - name: jwt-claim-headers
+    attributes:
+      protocols: ["http", "https"]
+      config:
+        claims:
+          type: array
+          elements:
+            type: string
+          default: ["countryOfAffiliation", "clearance_level", "coi_access"]
+        prefix:
+          type: string
+          default: "X-NATO-"
+        uri_param_names:
+          type: array
+          elements:
+            type: string
+          default: ["jwt"]
+
+  - name: response-size-limiting
+    attributes:
+      protocols: ["http", "https"]
+      config:
+        allowed_payload_size:
+          type: number
+          default: 10485760  # 10MB 

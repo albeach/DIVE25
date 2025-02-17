@@ -5,6 +5,7 @@ import rateLimit from 'express-rate-limit';
 import { config } from './config/config';
 import { AuthMiddleware } from './middleware/AuthMiddleware';
 import { AuditMiddleware } from './middleware/AuditMiddleware';
+import { ErrorMiddleware } from './middleware/ErrorMiddleware';
 import DocumentRoutes from './routes/DocumentRoutes';
 import { DatabaseService } from './services/DatabaseService';
 import { LoggerService } from './services/LoggerService';
@@ -21,6 +22,7 @@ class App {
     private readonly opa: OPAService;
     private readonly authMiddleware: AuthMiddleware;
     private readonly auditMiddleware: AuditMiddleware;
+    private readonly errorMiddleware: ErrorMiddleware;
 
     constructor() {
         this.app = express();
@@ -30,6 +32,7 @@ class App {
         this.opa = OPAService.getInstance();
         this.authMiddleware = AuthMiddleware.getInstance();
         this.auditMiddleware = AuditMiddleware.getInstance();
+        this.errorMiddleware = ErrorMiddleware.getInstance();
 
         this.initializeMiddleware();
         this.initializeRoutes();
@@ -150,6 +153,7 @@ class App {
 
         // Global error handler
         this.app.use(this.auditMiddleware.errorHandler);
+        this.app.use(this.errorMiddleware.handleError);
     }
 
     public async start(): Promise<void> {
