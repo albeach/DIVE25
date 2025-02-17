@@ -9,7 +9,9 @@
     "dev": "ts-node src/app.ts",
     "start": "node dist/app.js",
     "test": "jest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "seed": "ts-node prisma/seed.ts",
+    "dev:seed": "npm run seed -- --environment development"
   },
   "dependencies": {
     "@open-policy-agent/opa-wasm": "^1.10.0",

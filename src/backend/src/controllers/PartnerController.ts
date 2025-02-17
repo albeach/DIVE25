@@ -13,6 +13,8 @@ import { FederationMonitoringService } from '../services/FederationMonitoringSer
 import { PartnerDomainService } from '../services/partnerDomainService';
 import { FederationAuthService } from '../services/federationAuthService';
 import { KeycloakFederationService } from '../services/keycloakFederationService';
+import { prisma } from '../db';
+import { Partner, PartnerStatus } from '@prisma/client';
 
 export class PartnerController {
     private static instance: PartnerController;
@@ -405,41 +407,53 @@ export class PartnerController {
         return partner;
     }
 
-    async registerPartner(req: Request): Promise<Partner> {
-        const {
-            name,
-            endpoint,
-            federationConfig
-        } = req.body;
-
-        // Validate federation config
-        if (!federationConfig || !['SAML', 'OIDC'].includes(federationConfig.protocol)) {
-            throw new Error('Invalid federation configuration');
-        }
-
-        // Create partner
+    async registerPartner(data: {
+        name: string;
+        country: string;
+        clearanceLevel: string;
+        authorizedCOIs: string[];
+        federationMetadata: any;
+    }): Promise<Partner> {
+        // Create partner record
         const partner = await prisma.partner.create({
             data: {
-                name,
-                endpoint,
-                status: 'PENDING',
-                federationProtocol: federationConfig.protocol
+                name: data.name,
+                country: data.country,
+                clearanceLevel: data.clearanceLevel,
+                authorizedCOIs: data.authorizedCOIs,
+                status: PartnerStatus.PENDING
             }
         });
 
-        // Setup federation
+        // Set up federation
         await this.federationAuth.setupPartnerFederation(
             partner,
-            federationConfig
+            data.federationMetadata
         );
 
-        // Set up Keycloak federation
+        // Configure Keycloak
         await this.keycloakFederation.createIdpConfiguration(
             partner,
-            federationConfig
+            data.federationMetadata
         );
 
-        return partner;
+        // Activate partner
+        return this.activatePartner(partner.id);
+    }
+
+    async activatePartner(partnerId: string): Promise<Partner> {
+        return prisma.partner.update({
+            where: { id: partnerId },
+            data: { status: PartnerStatus.ACTIVE }
+        });
+    }
+
+    async getPartners(): Promise<Partner[]> {
+        return prisma.partner.findMany({
+            include: {
+                federation: true
+            }
+        });
     }
 }
 

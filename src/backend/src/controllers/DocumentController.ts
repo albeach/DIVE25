@@ -22,6 +22,8 @@ import { DocumentContent } from '../models/Document';
 import { asAuthError } from '../middleware/errorHandler';
 import { StorageService } from '../services/StorageService';
 import { DocumentError } from '../errors/DocumentError';
+import { prisma } from '../db';
+import { Document as PrismaDocument } from '@prisma/client';
 
 const id = new ObjectId();
 
@@ -837,6 +839,61 @@ export class DocumentController {
             throw new DocumentError('Failed to list versions', 500, error as Error);
         }
     };
+
+    async createDocument(data: {
+        title: string;
+        classification: string;
+        metadata: any;
+        coiTags: string[];
+        partnerId?: string;
+    }): Promise<PrismaDocument> {
+        // Validate classification level
+        if (!this.isValidClassification(data.classification)) {
+            throw new Error('Invalid classification level');
+        }
+
+        return prisma.document.create({
+            data: {
+                title: data.title,
+                classification: data.classification,
+                metadata: data.metadata,
+                coiTags: data.coiTags,
+                partnerId: data.partnerId
+            }
+        });
+    }
+
+    async getDocuments(query: {
+        classification?: string;
+        coiTags?: string[];
+        partnerId?: string;
+    }): Promise<PrismaDocument[]> {
+        return prisma.document.findMany({
+            where: {
+                classification: query.classification,
+                coiTags: query.coiTags ? { hasEvery: query.coiTags } : undefined,
+                partnerId: query.partnerId
+            },
+            orderBy: { createdAt: 'desc' }
+        });
+    }
+
+    async getDocument(id: string): Promise<PrismaDocument | null> {
+        return prisma.document.findUnique({
+            where: { id }
+        });
+    }
+
+    private isValidClassification(classification: string): boolean {
+        const validClassifications = [
+            'UNCLASSIFIED',
+            'RESTRICTED',
+            'CONFIDENTIAL',
+            'SECRET',
+            'TOP_SECRET'
+        ];
+        return validClassifications.includes(classification);
+    }
 }
 
 export default DocumentController.getInstance();

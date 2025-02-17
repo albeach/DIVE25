@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "6969:6969"
+    environment:
+      NODE_ENV: staging
+      DATABASE_URL: ${DATABASE_URL}
+      MONGODB_URI: ${MONGODB_URI}
+      KEYCLOAK_URL: https://auth.staging.dive25.com
+    depends_on:
+      - postgres
+      - mongodb
+
+  postgres:
+    image: postgres:14
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: dive25_staging
+    volumes:
+      - postgres_staging:/var/lib/postgresql/data
+
+  mongodb:
+    image: mongo:latest
+    volumes:
+      - mongodb_staging:/data/db
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/staging.conf:/etc/nginx/conf.d/default.conf
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+
+volumes:
+  postgres_staging:
+  mongodb_staging: 

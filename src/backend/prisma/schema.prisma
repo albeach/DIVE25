@@ -1,0 +1,50 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Partner {
+  id              String           @id @default(uuid())
+  name            String
+  country         String
+  status          PartnerStatus    @default(PENDING)
+  clearanceLevel  String
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  federation      Federation?
+  documents       Document[]
+  authorizedCOIs  String[]
+}
+
+model Federation {
+  id            String         @id @default(uuid())
+  partnerId     String        @unique
+  partner       Partner       @relation(fields: [partnerId], references: [id])
+  protocol      String        // "SAML" or "OIDC"
+  metadata      Json
+  status        String        @default("PENDING")
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+model Document {
+  id              String       @id @default(uuid())
+  title           String
+  classification  String
+  metadata        Json
+  coiTags         String[]
+  partnerId       String?
+  partner         Partner?     @relation(fields: [partnerId], references: [id])
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+}
+
+enum PartnerStatus {
+  PENDING
+  ACTIVE
+  INACTIVE
+} 
