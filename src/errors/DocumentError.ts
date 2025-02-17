@@ -1,7 +1,7 @@
 export class DocumentError extends Error {
     statusCode: number;
 
-    constructor(message: string, statusCode: number = 400) {
+    constructor(message: string, statusCode: number = 500) {
         super(message);
         this.name = 'DocumentError';
         this.statusCode = statusCode;

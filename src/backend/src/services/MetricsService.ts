@@ -11,9 +11,9 @@ import {
     UserAttributes,
     MetricLabels
 } from '../types';
-import { Counter, Gauge, Histogram } from 'prom-client';
+import { Registry, Counter, Gauge, Histogram } from 'prom-client';
 import { register } from 'prom-client';
-import { HealthCheckResult } from './healthCheckService';
+import { HealthCheckResult } from './HealthCheckService';
 
 /**
  * Service responsible for collecting, storing, and analyzing system metrics

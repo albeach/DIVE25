@@ -13,11 +13,6 @@ import {
     ClearanceLevel
 } from '../types';
 
-interface OPAResult {
-    allow: boolean;
-    error?: string;
-}
-
 interface OPAInput {
     user: {
         uniqueIdentifier: string;
@@ -35,16 +30,6 @@ interface OPAInput {
         coiTags?: string[];
         lacvCode?: string;
     };
-}
-
-export interface OPAService {
-    evaluateAccess(user: UserAttributes, resource: ResourceAttributes, action?: string): Promise<OPAResult>;
-    validateAttributes(attributes: UserAttributes): Promise<ValidationResult>;
-    evaluateClearanceAccess(userClearance: ClearanceLevel, requiredClearance: ClearanceLevel): Promise<OPAResult>;
-    evaluateUpdateAccess(userAttributes: UserAttributes, document: NATODocument): Promise<OPAResult>;
-    evaluateClearanceModification(userAttributes: UserAttributes, from: ClearanceLevel, to: ClearanceLevel): Promise<OPAResult>;
-    evaluateReleasabilityModification(userAttributes: UserAttributes, marker: string): Promise<OPAResult>;
-    evaluateCoiModification(userAttributes: UserAttributes, changes: any): Promise<OPAResult>;
 }
 
 export class OPAService {
@@ -98,53 +83,38 @@ export class OPAService {
         return OPAService.instance;
     }
 
-    public async evaluateAccess(input: OPAInput): Promise<OPAResult> {
-        const startTime = Date.now();
-        try {
-            // First evaluate basic access policy
-            const accessResult = await this.queryPolicy('access_policy', input);
-
-            if (!accessResult.allow) {
-                this.recordPolicyDecision('access_policy', false, input);
-                return {
-                    allow: false,
-                    error: 'Access denied by basic policy'
-                };
+    public async evaluateAccess(
+        user: UserAttributes,
+        resource: ResourceAttributes
+    ): Promise<OPAResult> {
+        const input: OPAInput = {
+            user: {
+                uniqueIdentifier: user.uniqueIdentifier,
+                countryOfAffiliation: user.countryOfAffiliation,
+                clearance: user.clearance,
+                coiTags: user.coiTags || [],
+                caveats: user.caveats || [],
+                lacvCode: user.lacvCode
+            },
+            resource: {
+                path: resource.path,
+                method: resource.method,
+                classification: resource.classification,
+                releasableTo: resource.releasableTo,
+                coiTags: resource.coiTags,
+                lacvCode: resource.lacvCode
             }
+        };
 
-            // Then evaluate partner-specific policies
-            const partnerResult = await this.queryPolicy('dive25/partner_policies', input);
-
-            this.recordPolicyDecision(
-                'partner_policies',
-                partnerResult.allow,
-                input
-            );
-
-            return partnerResult;
-
+        try {
+            const response = await this.axios.post('/v1/data/nato/document/allow', { input });
+            return response.data.result;
         } catch (error) {
-            this.logger.error('OPA evaluation failed:', {
-                error,
-                input: {
-                    user: {
-                        ...input.user,
-                        uniqueIdentifier: '[REDACTED]' // Don't log PII
-                    },
-                    resource: input.resource
-                }
-            });
-
-            this.metrics.recordMetric('opa_evaluation_error', {
-                error: error.message,
-                policy: 'access_policy'
-            });
-
-            throw new Error('Policy evaluation failed');
-        } finally {
-            this.metrics.recordMetric('opa_evaluation_duration', {
-                duration: Date.now() - startTime
-            });
+            this.logger.error('OPA evaluation failed', { error, input });
+            return {
+                allow: false,
+                reason: 'Access control evaluation failed'
+            };
         }
     }
 
@@ -209,7 +179,6 @@ export class OPAService {
                 warnings: result.warnings || [],
                 missingAttributes: result.missing_attrs
             };
-
         } catch (error) {
             this.logger.error('Attribute validation error:', error);
             return {
@@ -261,12 +230,11 @@ export class OPAService {
                 allow: response.data.result.allow === true,
                 reason: response.data.result.reason
             };
-
         } catch (error) {
             this.logger.error('Update access evaluation error:', error);
             return {
                 allow: false,
-                reason: 'Update access evaluation error'
+                reason: 'Update access evaluation failed'
             };
         }
     }
@@ -282,29 +250,26 @@ export class OPAService {
     }
 
     public async evaluateClearanceModification(
-        userAttributes: UserAttributes,
-        from: ClearanceLevel,
-        to: ClearanceLevel
+        user: UserAttributes,
+        fromLevel: ClearanceLevel,
+        toLevel: ClearanceLevel
     ): Promise<OPAResult> {
         try {
-            const response = await this.axios.post('/v1/data/dive25/clearance_modification', {
+            const response = await this.axios.post('/v1/data/nato/clearance/modify', {
                 input: {
-                    user: userAttributes,
-                    from,
-                    to
+                    user,
+                    modification: {
+                        from: fromLevel,
+                        to: toLevel
+                    }
                 }
             });
-
-            return {
-                allow: response.data.result.allow === true,
-                reason: response.data.result.reason
-            };
-
+            return response.data.result;
         } catch (error) {
-            this.logger.error('Clearance modification evaluation error:', error);
+            this.logger.error('Clearance modification evaluation failed', { error, user, fromLevel, toLevel });
             return {
                 allow: false,
-                reason: 'Clearance modification evaluation error'
+                reason: 'Clearance modification evaluation failed'
             };
         }
     }

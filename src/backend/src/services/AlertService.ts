@@ -1,6 +1,6 @@
 import { Partner } from '@prisma/client';
 import { logger } from '../utils/logger';
-import { HealthCheckResult } from './healthCheckService';
+import { HealthCheckResult } from './HealthCheckService';
 
 export class AlertService {
     private readonly alertThresholds = {

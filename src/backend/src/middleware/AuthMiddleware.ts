@@ -11,7 +11,7 @@ import {
     AuthenticatedRequest,
     UserAttributes,
     ResourceAttributes,
-    COIAccess
+    ValidationResult
 } from '../types';
 
 export class AuthError extends Error {

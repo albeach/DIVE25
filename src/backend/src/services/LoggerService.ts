@@ -6,7 +6,11 @@ import { config } from '../config/config';
 import {
     UserAttributes,
     AuditEvent,
-    ClearanceLevel
+    ClearanceLevel,
+    ResourceAttributes,
+    OPAResult,
+    ValidationResult,
+    NATODocument
 } from '../types';
 import { Request } from 'express';
 
@@ -35,13 +39,9 @@ export class LoggerService {
                 winston.format.timestamp(),
                 winston.format.json(),
                 winston.format.errors({ stack: true }),
-                winston.format.metadata({
-                    fillExcept: ['message', 'level', 'timestamp', 'label']
-                })
+                winston.format.metadata()
             ),
-            defaultMeta: {
-                service: 'dive25-api'
-            },
+            defaultMeta: { service: 'dive25' },
             transports: this.initializeTransports()
         });
 
@@ -56,7 +56,12 @@ export class LoggerService {
 
     private initializeTransports(): winston.transport[] {
         const transports: winston.transport[] = [
-            new winston.transports.Console(),
+            new winston.transports.Console({
+                format: winston.format.combine(
+                    winston.format.colorize(),
+                    winston.format.simple()
+                )
+            }),
 
             new winston.transports.File({
                 filename: 'logs/error.log',
@@ -225,83 +230,6 @@ export class LoggerService {
         }
 
         return sanitized;
-    }
-
-    public log(level: string, message: string, meta: any = {}) {
-        const correlationId = meta.correlationId || 'NO_CORRELATION_ID';
-        const partnerType = meta.partnerType || 'UNKNOWN';
-
-        this.logger.log(level, message, {
-            ...meta,
-            correlationId,
-            partnerType,
-            timestamp: new Date().toISOString(),
-            nato_audit: {
-                federation_id: process.env.FEDERATION_ID,
-                correlation_id: correlationId,
-                partner_type: partnerType,
-                classification: meta.classification || 'UNCLASSIFIED',
-                action_type: meta.actionType || 'SYSTEM',
-                user_id: meta.userId || 'SYSTEM',
-                resource_id: meta.resourceId,
-                status: meta.status || 'SUCCESS'
-            }
-        });
-    }
-
-    public getCorrelationId(req: Request): string {
-        return req.headers['x-nato-correlation-id'] as string ||
-            req.headers['x-correlation-id'] as string ||
-            'NO_CORRELATION_ID';
-    }
-
-    public getPartnerType(req: Request): string {
-        return req.headers['x-federation-partner'] as string || 'UNKNOWN';
-    }
-
-    public auditAccess(req: Request, status: string, meta: any = {}) {
-        const correlationId = this.getCorrelationId(req);
-        const partnerType = this.getPartnerType(req);
-
-        this.log('info', 'Access Audit', {
-            correlationId,
-            partnerType,
-            method: req.method,
-            path: req.path,
-            status,
-            actionType: 'ACCESS',
-            userId: meta.userId,
-            resourceId: meta.resourceId,
-            classification: meta.classification
-        });
-    }
-
-    public auditAuth(req: Request, status: string, meta: any = {}) {
-        const correlationId = this.getCorrelationId(req);
-        const partnerType = this.getPartnerType(req);
-
-        this.log('info', 'Authentication Audit', {
-            correlationId,
-            partnerType,
-            status,
-            actionType: 'AUTHENTICATION',
-            userId: meta.userId
-        });
-    }
-
-    public auditError(req: Request, error: Error, meta: any = {}) {
-        const correlationId = this.getCorrelationId(req);
-        const partnerType = this.getPartnerType(req);
-
-        this.log('error', 'Error Audit', {
-            correlationId,
-            partnerType,
-            error: error.message,
-            stack: error.stack,
-            actionType: 'ERROR',
-            userId: meta.userId,
-            status: 'FAILURE'
-        });
     }
 }
 

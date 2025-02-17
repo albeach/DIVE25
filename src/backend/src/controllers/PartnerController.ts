@@ -395,18 +395,6 @@ export class PartnerController {
         return partner;
     }
 
-    async deactivatePartner(partnerId: string): Promise<Partner> {
-        const partner = await prisma.partner.update({
-            where: { id: partnerId },
-            data: { status: 'INACTIVE' }
-        });
-
-        // Remove partner subdomain
-        await this.partnerDomainService.removePartnerDomain(partner);
-
-        return partner;
-    }
-
     async registerPartner(data: {
         name: string;
         country: string;

@@ -227,7 +227,40 @@ export interface ApiResponse<T> {
     };
 }
 
-// Update ValidationResult type
+// Consolidate duplicate interfaces into a single location
+export interface OPAResult {
+    allow: boolean;
+    reason?: string;
+}
+
+export interface ExistingAlertService {
+    send(alert: {
+        level: string;
+        title: string;
+        message: string;
+        metadata: Record<string, any>;
+        source: string;
+        timestamp: Date;
+        tags: string[];
+    }): Promise<void>;
+}
+
+export interface HealthCheckResult {
+    status: 'healthy' | 'degraded' | 'down';
+    responseTime: number;
+    lastChecked: Date;
+    error?: string;
+}
+
+export interface PartnerHealth {
+    partnerId: string;
+    status: 'healthy' | 'degraded' | 'down';
+    responseTime: number;
+    errorCount: number;
+    successRate: number;
+    lastChecked: Date;
+}
+
 export interface ValidationResult {
     valid: boolean;
     errors: string[];
@@ -312,11 +345,6 @@ export interface ResourceAttributes {
     classification?: string;
     coi?: string[];
     releasability?: string[];
-}
-
-export interface OPAResult {
-    allow: boolean;
-    reason?: string;
 }
 
 export interface MetricLabels {
