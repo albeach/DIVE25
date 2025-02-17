@@ -1,8 +1,0 @@
-# Production-specific overrides for PingDirectory (v10.2.0-latest)
-server:
-  host: "directory.dive25.com"
-  port: 389
-
-directory:
-  adminDN: "cn=Directory Manager"
-  adminPassword: "prod_secure_password"

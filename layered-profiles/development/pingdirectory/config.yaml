@@ -1,8 +1,0 @@
-# Development-specific overrides for PingDirectory
-server:
-  host: "dev.directory.dive25.com"
-  port: 1389
-
-directory:
-  adminDN: "cn=Directory Manager"
-  adminPassword: "dev_password"

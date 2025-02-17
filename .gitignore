@@ -1,14 +1,20 @@
-# Node.js dependencies
+# Dependencies
 node_modules/
-.npm/
-.pnpm-store/
-.yarn/
-.yarnrc.yml
+.pnp/
+.pnp.js
 
-# Build directories
-dist/
+# Testing
+coverage/
+.nyc_output/
+
+# Production
 build/
-out/
+dist/
+
+# Environment files
+.env
+.env.local
+.env.*.local
 
 # Logs
 logs/
@@ -17,9 +23,34 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# IDE/Editor files
-.vscode/
+# IDE
 .idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# Temporary files
+*.tmp
+*.bak
+
+# Node.js dependencies
+.npm/
+.pnpm-store/
+.yarn/
+.yarnrc.yml
+
+# Build directories
+out/
+
+# IDE/Editor files
 *.swp
 *.swo
 
@@ -28,18 +59,14 @@ yarn-error.log*
 Thumbs.db
 
 # Environment files
-.env
-.env.local
 .env.development
 .env.production
 .env.test
 
 # Docker files (optional)
 .dockerignore
-docker-compose.override.yml
 
 # Testing/coverage
-coverage/
 *.test.js
 *.spec.js
 jest-cache/
@@ -56,7 +83,6 @@ swagger.yaml
 api-docs/
 
 # Generated documentation
-docs/
 *.docx
 *.pdf
 
@@ -123,3 +149,32 @@ src/backend/llm_text_transcripts/merged-repo-2025-02-16T02-47-43.832Z.txt
 src/backend/src/services/refactor-9.ts
 src/backend/src/services/refactor-10.ts
 src/backend/src/services/refactor-11.ts
+
+# Create directory structure script
+cat > organize.sh << 'EOF'
+#!/bin/bash
+
+echo "🏗️  Organizing DIVE25 repository..."
+
+# Create main directories
+mkdir -p {src/{backend/middleware,frontend},docker/{kong,keycloak,postgres},tests}
+
+# Move files to appropriate directories
+echo "Moving files to correct locations..."
+
+# Backend files
+mv server.js src/backend/ 2>/dev/null
+mv middleware/* src/backend/middleware/ 2>/dev/null
+
+# Docker files
+mv kong.conf docker/kong/ 2>/dev/null
+mv keycloak.json docker/keycloak/ 2>/dev/null
+
+# Test files
+mv *.test.js tests/ 2>/dev/null
+mv *.spec.js tests/ 2>/dev/null
+
+echo "✨ Organization complete!"
+EOF
+
+chmod +x organize.sh
