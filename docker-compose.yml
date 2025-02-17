@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
 
   # MongoDB for document metadata storage
@@ -33,15 +35,17 @@ services:
   # Node.js backend API
   api:
     build: .
+    ports:
+      - "3000:3000"
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
     depends_on:
-      - db
-      - keycloak
-      - kong
+      db:
+        condition: service_healthy
     volumes:
-      - ./src:/app/src
-      - ./dist:/app/dist
+      - .:/app
+      - /app/node_modules
 
   # Prometheus for monitoring
   prometheus:
@@ -152,6 +156,22 @@ services:
     networks:
       - dive25-net
 
+  db:
+    image: postgres:13-alpine
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
 networks:
   dive25-net:
     driver: bridge
@@ -164,3 +184,4 @@ volumes:
   grafana_data:
   keycloak_data:
   kong_data:
+  postgres_data:

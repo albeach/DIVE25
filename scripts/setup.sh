@@ -180,7 +180,186 @@ verify_npm() {
     fi
 }
 
-# Main setup process
+# Function to create Docker Compose override files
+create_docker_compose_files() {
+    echo "Creating Docker Compose configuration files..."
+    
+    # Base docker-compose.yml (minimal configuration)
+    cat > docker-compose.yml << EOL
+version: '3.8'
+
+services:
+  api:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+EOL
+    log_success "Created base docker-compose.yml"
+
+    # Development override
+    cat > docker-compose.dev.yml << EOL
+version: '3.8'
+
+services:
+  db:
+    image: postgres:13-alpine
+    environment:
+      POSTGRES_USER: \${DB_USER}
+      POSTGRES_PASSWORD: \${DB_PASSWORD}
+      POSTGRES_DB: \${DB_NAME}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \${DB_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://\${DB_USER}:\${DB_PASSWORD}@db:5432/\${DB_NAME}
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+EOL
+    log_success "Created docker-compose.dev.yml"
+
+    # Staging override
+    cat > docker-compose.staging.yml << EOL
+version: '3.8'
+
+services:
+  db:
+    image: postgres:13-alpine
+    environment:
+      POSTGRES_USER: \${DB_USER}
+      POSTGRES_PASSWORD: \${DB_PASSWORD}
+      POSTGRES_DB: \${DB_NAME}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \${DB_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  redis:
+    image: redis:alpine
+    volumes:
+      - redis_data:/data
+
+  api:
+    environment:
+      - NODE_ENV=staging
+      - DATABASE_URL=postgresql://\${DB_USER}:\${DB_PASSWORD}@db:5432/\${DB_NAME}
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+volumes:
+  postgres_data:
+  redis_data:
+EOL
+    log_success "Created docker-compose.staging.yml"
+
+    # Production override
+    cat > docker-compose.prod.yml << EOL
+version: '3.8'
+
+services:
+  db:
+    image: postgres:13-alpine
+    environment:
+      POSTGRES_USER: \${DB_USER}
+      POSTGRES_PASSWORD: \${DB_PASSWORD}
+      POSTGRES_DB: \${DB_NAME}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \${DB_USER}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  redis:
+    image: redis:alpine
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  api:
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://\${DB_USER}:\${DB_PASSWORD}@db:5432/\${DB_NAME}
+      - REDIS_URL=redis://redis:6379
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 1G
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+volumes:
+  postgres_data:
+  redis_data:
+EOL
+    log_success "Created docker-compose.prod.yml"
+}
+
+# Modify the Docker startup in main()
+start_docker_services() {
+    local env=${1:-dev}
+    echo "Starting Docker services in ${env} environment..."
+    
+    if ! command -v docker-compose &> /dev/null; then
+        log_error "Docker verification" \
+            "docker-compose is not installed" \
+            "Install Docker Desktop from https://www.docker.com/products/docker-desktop"
+    fi
+    
+    case $env in
+        dev)
+            docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+            ;;
+        staging)
+            docker-compose -f docker-compose.yml -f docker-compose.staging.yml up -d
+            ;;
+        prod)
+            docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+            ;;
+        *)
+            log_error "Environment selection" \
+                "Invalid environment: ${env}" \
+                "Use one of: dev, staging, prod"
+            ;;
+    esac
+}
+
+# Modify main() to include these changes
 main() {
     echo "Starting setup process..."
     
@@ -220,6 +399,30 @@ main() {
     docker-compose up -d || log_error "Docker startup" \
         "Failed to start Docker services" \
         "Check if Docker is running and you have necessary permissions"
+    
+    # First remove potentially vulnerable packages
+    npm uninstall swagger-jsdoc swagger-ui-express
+
+    # Install more secure API documentation alternatives
+    npm install --save fastify-swagger @fastify/swagger-ui
+
+    # Update core dependencies to latest secure versions
+    npm install --save express@latest
+    npm install --save mongoose@latest
+    npm install --save @prisma/client@latest
+
+    # Install security-focused middleware
+    npm install --save 
+      helmet@latest          # Security headers
+      express-rate-limit    # Rate limiting
+      express-validator     # Input validation
+      cors                  # CORS handling
+      
+    # Install their type definitions
+    npm install --save-dev
+      @types/helmet
+      @types/express-rate-limit
+      @types/cors
     
     log_success "Setup completed successfully!"
     echo "The application is now running at http://localhost:3000"
