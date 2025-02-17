@@ -32,23 +32,16 @@ services:
 
   # Node.js backend API
   api:
-    build:
-      context: ./src/backend
-      dockerfile: Dockerfile
+    build: .
     environment:
-      NODE_ENV: ${NODE_ENV:-development}
-      MONGO_URI: mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@mongodb:27017
-      OPA_URL: http://opa:8181
-    volumes:
-      - ./src/backend:/app
-      - /app/node_modules
-    ports:
-      - "6969:6969"
+      - NODE_ENV=production
     depends_on:
-      - mongodb
-      - opa
-    networks:
-      - dive25-net
+      - db
+      - keycloak
+      - kong
+    volumes:
+      - ./src:/app/src
+      - ./dist:/app/dist
 
   # Prometheus for monitoring
   prometheus:
