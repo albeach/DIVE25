@@ -13,6 +13,30 @@ import {
     ClearanceLevel
 } from '../types';
 
+interface OPAResult {
+    allow: boolean;
+    error?: string;
+}
+
+interface OPAInput {
+    user: {
+        uniqueIdentifier: string;
+        countryOfAffiliation: string;
+        clearance: string;
+        coiTags: string[];
+        caveats: string[];
+        lacvCode?: string;
+    };
+    resource: {
+        path: string;
+        method: string;
+        classification: string;
+        releasableTo: string[];
+        coiTags?: string[];
+        lacvCode?: string;
+    };
+}
+
 export interface OPAService {
     evaluateAccess(user: UserAttributes, resource: ResourceAttributes, action?: string): Promise<OPAResult>;
     validateAttributes(attributes: UserAttributes): Promise<ValidationResult>;
@@ -28,6 +52,7 @@ export class OPAService {
     private readonly axios: AxiosInstance;
     private readonly logger: LoggerService;
     private readonly metrics: MetricsService;
+    private readonly baseUrl: string;
 
     private readonly CACHE_CONFIG = {
         POLICY_TTL: 300, // 5 minutes
@@ -46,9 +71,10 @@ export class OPAService {
     private constructor() {
         this.logger = LoggerService.getInstance();
         this.metrics = MetricsService.getInstance();
+        this.baseUrl = config.opa.url;
 
         this.axios = axios.create({
-            baseURL: config.opa.url,
+            baseURL: this.baseUrl,
             timeout: this.CACHE_CONFIG.TIMEOUT,
             headers: {
                 'Content-Type': 'application/json'
@@ -72,45 +98,100 @@ export class OPAService {
         return OPAService.instance;
     }
 
-    public async evaluateAccess(
-        user: UserAttributes,
-        resource: ResourceAttributes,
-        action?: string
-    ): Promise<OPAResult> {
+    public async evaluateAccess(input: OPAInput): Promise<OPAResult> {
         const startTime = Date.now();
-
         try {
-            const response = await this.axios.post('/v1/data/dive25/abac', {
+            // First evaluate basic access policy
+            const accessResult = await this.queryPolicy('access_policy', input);
+
+            if (!accessResult.allow) {
+                this.recordPolicyDecision('access_policy', false, input);
+                return {
+                    allow: false,
+                    error: 'Access denied by basic policy'
+                };
+            }
+
+            // Then evaluate partner-specific policies
+            const partnerResult = await this.queryPolicy('dive25/partner_policies', input);
+
+            this.recordPolicyDecision(
+                'partner_policies',
+                partnerResult.allow,
+                input
+            );
+
+            return partnerResult;
+
+        } catch (error) {
+            this.logger.error('OPA evaluation failed:', {
+                error,
                 input: {
-                    user,
-                    resource,
-                    action
+                    user: {
+                        ...input.user,
+                        uniqueIdentifier: '[REDACTED]' // Don't log PII
+                    },
+                    resource: input.resource
                 }
             });
 
-            const result = response.data.result;
-
-            await this.metrics.recordOperationMetrics('opa_evaluation', {
-                duration: Date.now() - startTime,
-                decision: result.allow,
-                userClearance: user.clearance,
-                resourceClearance: resource.clearance
+            this.metrics.recordMetric('opa_evaluation_error', {
+                error: error.message,
+                policy: 'access_policy'
             });
 
-            return {
-                allow: result.allow === true,
-                reason: result.reason
-            };
-
-        } catch (error) {
-            this.logger.error('OPA evaluation error:', error);
-            await this.metrics.recordOperationError('opa_evaluation', error);
-
-            return {
-                allow: false,
-                reason: 'Policy evaluation error'
-            };
+            throw new Error('Policy evaluation failed');
+        } finally {
+            this.metrics.recordMetric('opa_evaluation_duration', {
+                duration: Date.now() - startTime
+            });
         }
+    }
+
+    private async queryPolicy(policyPath: string, input: OPAInput): Promise<OPAResult> {
+        const response = await this.axios.post(
+            `/v1/data/${policyPath}`,
+            { input },
+            {
+                timeout: 5000 // 5 second timeout
+            }
+        );
+
+        if (response.status !== 200) {
+            throw new Error(`OPA returned status ${response.status}`);
+        }
+
+        const result = response.data.result;
+
+        return {
+            allow: result.allow === true,
+            error: result.error || undefined
+        };
+    }
+
+    private recordPolicyDecision(
+        policy: string,
+        allowed: boolean,
+        input: OPAInput
+    ): void {
+        this.metrics.recordMetric('opa_decision', {
+            policy,
+            allowed: allowed ? 1 : 0,
+            country: input.user.countryOfAffiliation,
+            clearance: input.user.clearance,
+            classification: input.resource.classification
+        });
+
+        this.logger.info('Policy decision', {
+            policy,
+            allowed,
+            country: input.user.countryOfAffiliation,
+            resource: {
+                classification: input.resource.classification,
+                releasableTo: input.resource.releasableTo,
+                coiTags: input.resource.coiTags
+            }
+        });
     }
 
     public async validateAttributes(
@@ -252,6 +333,11 @@ export class OPAService {
                 reason: 'Releasability modification evaluation error'
             };
         }
+    }
+
+    public async evaluateCoiModification(userAttributes: UserAttributes, changes: any): Promise<OPAResult> {
+        // Implementation needed
+        throw new Error('Method not implemented');
     }
 
     private handleAxiosError(error: any): never {

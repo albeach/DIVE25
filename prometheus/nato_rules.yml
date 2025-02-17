@@ -1,0 +1,34 @@
+groups:
+  - name: nato_security_rules
+    rules:
+      - alert: HighClassificationAccessRate
+        expr: rate(dive25_classification_access_total{level=~"SECRET|TOP SECRET"}[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          domain: security
+        annotations:
+          summary: High rate of classified document access
+          description: "{{ $value }} classified document accesses in last 5m"
+
+      - alert: UnusualPartnerAccess
+        expr: |
+          rate(dive25_partner_access_total{partner_type="FVEY"}[5m])
+          > 2 * avg_over_time(dive25_partner_access_total{partner_type="FVEY"}[24h])
+        for: 15m
+        labels:
+          severity: warning
+          domain: security
+        annotations:
+          summary: Unusual partner access pattern detected
+          description: "Partner {{ $labels.country }} showing unusual access patterns"
+
+      - alert: COIViolationAttempts
+        expr: rate(dive25_coi_denials_total[5m]) > 5
+        for: 5m
+        labels:
+          severity: critical
+          domain: security
+        annotations:
+          summary: Multiple COI access violations detected
+          description: "{{ $value }} COI violations in last 5m" 

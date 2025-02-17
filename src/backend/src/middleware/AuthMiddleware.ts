@@ -5,8 +5,14 @@ import { Redis } from 'ioredis';
 import { OPAService } from '../services/OPAService';
 import { LoggerService } from '../services/LoggerService';
 import { MetricsService } from '../services/MetricsService';
+import { COIValidationService } from '../services/COIValidationService';
 import { config } from '../config/config';
-import { AuthenticatedRequest, UserAttributes, ResourceAttributes } from '../types';
+import {
+    AuthenticatedRequest,
+    UserAttributes,
+    ResourceAttributes,
+    COIAccess
+} from '../types';
 
 export class AuthError extends Error {
     constructor(message: string, public statusCode: number) {
@@ -20,6 +26,7 @@ export class AuthMiddleware {
     private readonly opaService: OPAService;
     private readonly logger: LoggerService;
     private readonly metrics: MetricsService;
+    private readonly coiValidation: COIValidationService;
     private readonly redis: Redis;
     private publicKey: string | null = null;
 
@@ -27,6 +34,7 @@ export class AuthMiddleware {
         this.opaService = OPAService.getInstance();
         this.logger = LoggerService.getInstance();
         this.metrics = MetricsService.getInstance();
+        this.coiValidation = COIValidationService.getInstance();
         this.redis = new Redis(config.redis);
 
         this.initializeKeycloak();
@@ -59,27 +67,53 @@ export class AuthMiddleware {
             const decodedToken = await this.verifyToken(token);
             const userAttributes = this.mapKeycloakAttributes(decodedToken);
 
+            // Validate COI access based on partner type
+            const coiValid = this.coiValidation.validateCOIAccess(
+                userAttributes.coiAccess,
+                this.getPartnerType(userAttributes.countryOfAffiliation)
+            );
+
+            if (!coiValid) {
+                this.logger.warn('Invalid COI access detected', {
+                    user: userAttributes.uniqueIdentifier,
+                    country: userAttributes.countryOfAffiliation,
+                    cois: userAttributes.coiAccess
+                });
+            }
+
+            // Prepare resource attributes for OPA
             const resourceAttributes: ResourceAttributes = {
                 path: req.path,
                 method: req.method,
-                resourceType: 'api'
+                classification: req.headers['x-classification'] as string,
+                releasableTo: this.parseReleasability(req.headers['x-releasable-to']),
+                coiTags: userAttributes.coiAccess.map(coi => coi.id),
+                lacvCode: req.headers['x-lacv-code'] as string
             };
 
-            const accessResult = await this.opaService.evaluateAccess(
-                userAttributes,
-                resourceAttributes
-            );
+            // Evaluate access using your OPA policies
+            const accessResult = await this.opaService.evaluateAccess({
+                user: {
+                    uniqueIdentifier: userAttributes.uniqueIdentifier,
+                    countryOfAffiliation: userAttributes.countryOfAffiliation,
+                    clearance: userAttributes.clearance,
+                    coiTags: userAttributes.coiAccess.map(coi => coi.id),
+                    caveats: userAttributes.caveats,
+                    lacvCode: userAttributes.lacvCode
+                },
+                resource: resourceAttributes
+            });
 
             if (!accessResult.allow) {
                 throw new AuthError(
-                    accessResult.reason || 'Access denied',
+                    accessResult.error || 'Access denied',
                     403
                 );
             }
 
             (req as AuthenticatedRequest).userAttributes = userAttributes;
 
-            this.metrics.recordAuthSuccess(userAttributes.organization);
+            this.metrics.recordAuthSuccess(userAttributes.countryOfAffiliation);
 
             next();
         } catch (error) {
@@ -107,14 +141,50 @@ export class AuthMiddleware {
         }
     }
 
+    private getPartnerType(country: string): string {
+        if (this.isInGroup(country, 'fvey_nations')) return 'FVEY';
+        if (this.isInGroup(country, 'nato_nations')) return 'NATO';
+        if (this.isInGroup(country, 'eu_nations')) return 'EU';
+        return 'OTHER';
+    }
+
+    private isInGroup(country: string, group: string): boolean {
+        const groups = {
+            fvey_nations: ['AUS', 'CAN', 'NZL', 'GBR', 'USA'],
+            nato_nations: ['USA', 'GBR', 'FRA', 'DEU', /* ... other NATO nations */],
+            eu_nations: ['FRA', 'DEU', 'ITA', 'ESP', 'BEL', 'NLD']
+        };
+        return groups[group]?.includes(country) || false;
+    }
+
+    private parseReleasability(header: any): string[] {
+        if (!header) return [];
+        return Array.isArray(header) ? header : header.split(',').map(s => s.trim());
+    }
+
     private mapKeycloakAttributes(decodedToken: any): UserAttributes {
         return {
             uniqueIdentifier: decodedToken.sub,
-            organization: decodedToken.organization,
+            countryOfAffiliation: decodedToken.country,
             clearance: decodedToken.clearance_level,
-            coiAccess: decodedToken.coi_access || [],
-            releasabilityAccess: decodedToken.releasability || []
+            coiAccess: this.mapCOIAccess(decodedToken.coi_access || []),
+            caveats: decodedToken.caveats || [],
+            lacvCode: decodedToken.lacv_code,
+            metadata: {
+                lastLogin: new Date(),
+                federationId: decodedToken.federation_id
+            }
         };
+    }
+
+    private mapCOIAccess(coiData: any[]): COIAccess[] {
+        return coiData.map(coi => ({
+            id: coi.id,
+            name: coi.name,
+            level: coi.level,
+            validFrom: new Date(coi.valid_from),
+            validTo: coi.valid_to ? new Date(coi.valid_to) : undefined
+        }));
     }
 
     private handleAuthError(error: any, req: Request, res: Response): void {

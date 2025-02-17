@@ -1,0 +1,117 @@
+{
+    "realm": "dive25",
+    "enabled": true,
+    "sslRequired": "external",
+    "displayName": "DIVE25 Federation",
+    "displayNameHtml": "<div class=\"kc-logo-text\">DIVE25 Federation</div>",
+    "bruteForceProtected": true,
+    "roles": {
+        "realm": [
+            {
+                "name": "nato_user",
+                "description": "NATO Federation User"
+            },
+            {
+                "name": "fvey_user",
+                "description": "Five Eyes Federation User"
+            },
+            {
+                "name": "eu_user",
+                "description": "EU Federation User"
+            }
+        ]
+    },
+    "clients": [
+        {
+            "clientId": "dive25-api",
+            "enabled": true,
+            "clientAuthenticatorType": "client-secret",
+            "secret": "${env.KEYCLOAK_CLIENT_SECRET}",
+            "redirectUris": [
+                "*"
+            ],
+            "webOrigins": [
+                "*"
+            ],
+            "protocol": "openid-connect",
+            "attributes": {
+                "include.in.token.scope": "true",
+                "display.on.consent.screen": "false"
+            },
+            "protocolMappers": [
+                {
+                    "name": "country_mapper",
+                    "protocol": "openid-connect",
+                    "protocolMapper": "oidc-usermodel-attribute-mapper",
+                    "config": {
+                        "user.attribute": "countryOfAffiliation",
+                        "claim.name": "country",
+                        "jsonType.label": "String"
+                    }
+                },
+                {
+                    "name": "clearance_mapper",
+                    "protocol": "openid-connect",
+                    "protocolMapper": "oidc-usermodel-attribute-mapper",
+                    "config": {
+                        "user.attribute": "clearance",
+                        "claim.name": "clearance_level",
+                        "jsonType.label": "String"
+                    }
+                },
+                {
+                    "name": "coi_mapper",
+                    "protocol": "openid-connect",
+                    "protocolMapper": "oidc-usermodel-attribute-mapper",
+                    "config": {
+                        "user.attribute": "coiAccess",
+                        "claim.name": "coi_access",
+                        "jsonType.label": "JSON"
+                    }
+                }
+            ]
+        }
+    ],
+    "identityProviders": [
+        {
+            "alias": "pingfederate-legacy",
+            "displayName": "PingFederate Legacy IDP",
+            "providerId": "oidc",
+            "enabled": true,
+            "trustEmail": true,
+            "storeToken": true,
+            "addReadTokenRoleOnCreate": true,
+            "config": {
+                "clientId": "${env.PING_CLIENT_ID}",
+                "clientSecret": "${env.PING_CLIENT_SECRET}",
+                "tokenUrl": "${env.PING_TOKEN_URL}",
+                "authorizationUrl": "${env.PING_AUTH_URL}",
+                "defaultScope": "openid profile email",
+                "backchannelSupported": "true",
+                "useJwksUrl": "true",
+                "jwksUrl": "${env.PING_JWKS_URL}",
+                "validateSignature": "true"
+            }
+        }
+    ],
+    "userFederationProviders": [
+        {
+            "displayName": "NATO Directory",
+            "providerName": "ldap",
+            "priority": 1,
+            "config": {
+                "vendor": "other",
+                "connectionUrl": "${env.NATO_LDAP_URL}",
+                "bindDn": "${env.NATO_LDAP_BIND_DN}",
+                "bindCredential": "${env.NATO_LDAP_BIND_CRED}",
+                "usersDn": "${env.NATO_LDAP_USERS_DN}",
+                "userObjectClasses": "inetOrgPerson, organizationalPerson",
+                "usernameLDAPAttribute": "uid",
+                "rdnLDAPAttribute": "uid",
+                "uuidLDAPAttribute": "entryUUID",
+                "userPasswordAttribute": "userPassword",
+                "searchScope": "2"
+            }
+        }
+    ]
+}

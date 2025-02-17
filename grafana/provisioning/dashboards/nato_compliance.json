@@ -1,0 +1,24 @@
+{
+    "title": "NATO Compliance & Audit",
+    "panels": [
+        {
+            "title": "STANAG 4774/4778 Compliance",
+            "type": "gauge",
+            "targets": [
+                {
+                    "expr": "sum(dive25_auth_attempts_total) by (result)",
+                    "legendFormat": "Authentication Compliance"
+                }
+            ]
+        },
+        {
+            "title": "Partner Federation Status",
+            "type": "status-history",
+            "targets": [
+                {
+                    "expr": "dive25_partner_access_total{partner_type=~'FVEY|NATO|EU'}"
+                }
+            ]
+        }
+    ]
+}

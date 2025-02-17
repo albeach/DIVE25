@@ -3,29 +3,48 @@ import { COIAccess } from '../types';
 export class COIValidationService {
     private static instance: COIValidationService;
 
+    // Valid COI tags from your OPA policy
+    private readonly validCoiTags = {
+        "OpAlpha": true,
+        "OpBravo": true,
+        "OpGamma": true,
+        "MissionX": true,
+        "MissionZ": true
+    };
+
     private constructor() { }
 
-    public validateCOIAccess(coiAccess: COIAccess[]): boolean {
-        const now = new Date();
+    public validateCOIAccess(coiAccess: COIAccess[], partnerType: string): boolean {
+        // Use partner-specific COI rules from your partner_policies.rego
+        const allowedTags = this.getAllowedCoiTags(partnerType);
 
         return coiAccess.every(coi => {
-            // Check if COI access is currently valid
-            const validFrom = new Date(coi.validFrom);
-            const validTo = coi.validTo ? new Date(coi.validTo) : null;
+            // Verify the COI tag is valid according to your policy
+            if (!this.validCoiTags[coi.id]) {
+                return false;
+            }
 
-            const isValid = validFrom <= now &&
-                (!validTo || validTo >= now);
+            // Check if this COI is allowed for the partner type
+            if (!allowedTags.includes(coi.id)) {
+                return false;
+            }
 
-            // Additional validation rules can be added here
-            const hasValidLevel = this.validateCOILevel(coi.level);
-
-            return isValid && hasValidLevel;
+            return true;
         });
     }
 
-    private validateCOILevel(level: string): boolean {
-        const validLevels = ['READ', 'WRITE', 'ADMIN'];
-        return validLevels.includes(level.toUpperCase());
+    private getAllowedCoiTags(partnerType: string): string[] {
+        // Match your partner_policies.rego definitions
+        switch (partnerType) {
+            case 'FVEY':
+                return ['OpAlpha', 'OpBravo'];
+            case 'NATO':
+                return ['OpAlpha', 'OpBravo', 'OpGamma', 'MissionX', 'MissionZ'];
+            case 'EU':
+                return ['MissionX'];
+            default:
+                return [];
+        }
     }
 
     public static getInstance(): COIValidationService {

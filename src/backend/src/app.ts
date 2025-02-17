@@ -4,6 +4,7 @@ import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { config } from './config/config';
 import { AuthMiddleware } from './middleware/AuthMiddleware';
+import { AuditMiddleware } from './middleware/AuditMiddleware';
 import DocumentRoutes from './routes/DocumentRoutes';
 import { DatabaseService } from './services/DatabaseService';
 import { LoggerService } from './services/LoggerService';
@@ -18,6 +19,8 @@ class App {
     private readonly metrics: MetricsService;
     private readonly db: DatabaseService;
     private readonly opa: OPAService;
+    private readonly authMiddleware: AuthMiddleware;
+    private readonly auditMiddleware: AuditMiddleware;
 
     constructor() {
         this.app = express();
@@ -25,6 +28,8 @@ class App {
         this.metrics = MetricsService.getInstance();
         this.db = DatabaseService.getInstance();
         this.opa = OPAService.getInstance();
+        this.authMiddleware = AuthMiddleware.getInstance();
+        this.auditMiddleware = AuditMiddleware.getInstance();
 
         this.initializeMiddleware();
         this.initializeRoutes();
@@ -72,6 +77,9 @@ class App {
         this.app.use(express.json({ limit: '10mb' }));
         this.app.use(express.urlencoded({ extended: true }));
 
+        // Correlation ID and Audit middleware
+        this.app.use(this.auditMiddleware.auditRequest);
+
         // Request logging and metrics
         this.app.use((req: Request, res: Response, next: NextFunction) => {
             const requestId = req.headers['x-request-id'] ||
@@ -102,7 +110,6 @@ class App {
     }
 
     private initializeRoutes(): void {
-
         const documentRoutes = DocumentRoutes.getInstance();
         // Health check endpoint
         this.app.get('/health', (req: Request, res: Response) => {
@@ -125,10 +132,9 @@ class App {
         });
 
         // API routes
-        const authMiddleware = AuthMiddleware.getInstance();
         this.app.use(
             '/api/documents',
-            authMiddleware.authenticate,
+            this.authMiddleware.authenticate,
             documentRoutes.getRouter()
         );
     }
@@ -143,22 +149,7 @@ class App {
         });
 
         // Global error handler
-        this.app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-            const error = err as AuthError;
-
-            this.logger.error('Unhandled error:', {
-                error,
-                path: req.path,
-                method: req.method,
-                requestId: req.headers['x-request-id']
-            });
-
-            res.status(error.statusCode || 500).json({
-                error: error.message || 'Internal server error',
-                code: error.code || 'ERR500',
-                requestId: req.headers['x-request-id']
-            });
-        });
+        this.app.use(this.auditMiddleware.errorHandler);
     }
 
     public async start(): Promise<void> {

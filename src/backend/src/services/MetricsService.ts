@@ -11,6 +11,7 @@ import {
     UserAttributes,
     MetricLabels
 } from '../types';
+import { Counter, Gauge, Histogram } from 'prom-client';
 
 /**
  * Service responsible for collecting, storing, and analyzing system metrics
@@ -49,6 +50,34 @@ export class MetricsService {
         MONTHLY: 86400 * 365  // 1 year for monthly aggregates
     };
 
+    // Authentication Metrics
+    private readonly authAttempts: Counter;
+    private readonly authFailures: Counter;
+    private readonly authDuration: Histogram;
+
+    // Policy Evaluation Metrics
+    private readonly policyEvaluations: Counter;
+    private readonly policyDuration: Histogram;
+    private readonly policyFailures: Counter;
+
+    // Partner-Specific Metrics
+    private readonly partnerAccess: Counter;
+    private readonly partnerDenials: Counter;
+    private readonly activePartnerSessions: Gauge;
+
+    // Classification Level Metrics
+    private readonly classificationAccess: Counter;
+    private readonly classificationDenials: Counter;
+
+    // COI Metrics
+    private readonly coiAccess: Counter;
+    private readonly coiDenials: Counter;
+    private readonly activeCoiUsers: Gauge;
+
+    // LACV Metrics
+    private readonly lacvChecks: Counter;
+    private readonly lacvDenials: Counter;
+
     private constructor() {
         this.logger = LoggerService.getInstance();
         this.redis = new Redis({
@@ -59,6 +88,110 @@ export class MetricsService {
         });
         this.metrics = this.initializeMetrics();
         this.initializeErrorHandling();
+
+        // Authentication Metrics
+        this.authAttempts = new Counter({
+            name: 'dive25_auth_attempts_total',
+            help: 'Total number of authentication attempts',
+            labelNames: ['partner_type', 'country']
+        });
+
+        this.authFailures = new Counter({
+            name: 'dive25_auth_failures_total',
+            help: 'Total number of authentication failures',
+            labelNames: ['partner_type', 'country', 'reason']
+        });
+
+        this.authDuration = new Histogram({
+            name: 'dive25_auth_duration_seconds',
+            help: 'Authentication duration in seconds',
+            labelNames: ['partner_type'],
+            buckets: [0.1, 0.5, 1, 2, 5]
+        });
+
+        // Policy Evaluation Metrics
+        this.policyEvaluations = new Counter({
+            name: 'dive25_policy_evaluations_total',
+            help: 'Total number of policy evaluations',
+            labelNames: ['policy', 'partner_type', 'result']
+        });
+
+        this.policyDuration = new Histogram({
+            name: 'dive25_policy_duration_seconds',
+            help: 'Policy evaluation duration in seconds',
+            labelNames: ['policy'],
+            buckets: [0.01, 0.05, 0.1, 0.5, 1]
+        });
+
+        this.policyFailures = new Counter({
+            name: 'dive25_policy_failures_total',
+            help: 'Total number of policy evaluation failures',
+            labelNames: ['policy', 'reason']
+        });
+
+        // Partner Metrics
+        this.partnerAccess = new Counter({
+            name: 'dive25_partner_access_total',
+            help: 'Total number of partner access attempts',
+            labelNames: ['partner_type', 'country', 'classification']
+        });
+
+        this.partnerDenials = new Counter({
+            name: 'dive25_partner_denials_total',
+            help: 'Total number of partner access denials',
+            labelNames: ['partner_type', 'country', 'reason']
+        });
+
+        this.activePartnerSessions = new Gauge({
+            name: 'dive25_active_partner_sessions',
+            help: 'Current number of active partner sessions',
+            labelNames: ['partner_type', 'country']
+        });
+
+        // Classification Metrics
+        this.classificationAccess = new Counter({
+            name: 'dive25_classification_access_total',
+            help: 'Total number of classification level accesses',
+            labelNames: ['level', 'partner_type']
+        });
+
+        this.classificationDenials = new Counter({
+            name: 'dive25_classification_denials_total',
+            help: 'Total number of classification level denials',
+            labelNames: ['requested_level', 'user_level', 'partner_type']
+        });
+
+        // COI Metrics
+        this.coiAccess = new Counter({
+            name: 'dive25_coi_access_total',
+            help: 'Total number of COI access attempts',
+            labelNames: ['coi_id', 'partner_type']
+        });
+
+        this.coiDenials = new Counter({
+            name: 'dive25_coi_denials_total',
+            help: 'Total number of COI access denials',
+            labelNames: ['coi_id', 'partner_type', 'reason']
+        });
+
+        this.activeCoiUsers = new Gauge({
+            name: 'dive25_active_coi_users',
+            help: 'Current number of active users per COI',
+            labelNames: ['coi_id', 'partner_type']
+        });
+
+        // LACV Metrics
+        this.lacvChecks = new Counter({
+            name: 'dive25_lacv_checks_total',
+            help: 'Total number of LACV code checks',
+            labelNames: ['code', 'partner_type']
+        });
+
+        this.lacvDenials = new Counter({
+            name: 'dive25_lacv_denials_total',
+            help: 'Total number of LACV code denials',
+            labelNames: ['code', 'partner_type', 'reason']
+        });
     }
 
     private initializeErrorHandling(): void {
@@ -372,23 +505,52 @@ export class MetricsService {
         }
     }
 
-    public recordMetric(name: string, labels: MetricLabels): void {
-        // Your existing metric recording logic
+    public recordAuthAttempt(partnerType: string, country: string): void {
+        this.authAttempts.inc({ partner_type: partnerType, country });
     }
 
-    public recordAuthSuccess(partnerId: string): void {
-        this.recordMetric('auth_success', { partner: partnerId });
+    public recordAuthFailure(partnerType: string, country: string, reason: string): void {
+        this.authFailures.inc({ partner_type: partnerType, country, reason });
     }
 
-    public recordAuthFailure(error: string, partnerId: string): void {
-        this.recordMetric('auth_failure', {
-            error,
-            partner: partnerId
+    public recordPolicyDecision(labels: {
+        policy: string;
+        partnerType: string;
+        result: boolean;
+        classification?: string;
+        coiId?: string;
+        lacvCode?: string;
+    }): void {
+        this.policyEvaluations.inc({
+            policy: labels.policy,
+            partner_type: labels.partnerType,
+            result: labels.result ? 'allow' : 'deny'
         });
+
+        if (labels.classification) {
+            this.classificationAccess.inc({
+                level: labels.classification,
+                partner_type: labels.partnerType
+            });
+        }
+
+        if (labels.coiId) {
+            this.coiAccess.inc({
+                coi_id: labels.coiId,
+                partner_type: labels.partnerType
+            });
+        }
+
+        if (labels.lacvCode) {
+            this.lacvChecks.inc({
+                code: labels.lacvCode,
+                partner_type: labels.partnerType
+            });
+        }
     }
 
-    public recordAuthDuration(duration: number): void {
-        this.recordMetric('auth_duration', { value: duration });
+    public updateActivePartnerSessions(partnerType: string, country: string, count: number): void {
+        this.activePartnerSessions.set({ partner_type: partnerType, country }, count);
     }
 }
 

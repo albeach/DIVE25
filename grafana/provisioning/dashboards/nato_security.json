@@ -1,0 +1,125 @@
+{
+    "annotations": {
+        "list": []
+    },
+    "editable": true,
+    "fiscalYearStartMonth": 0,
+    "graphTooltip": 0,
+    "id": 1,
+    "links": [],
+    "liveNow": false,
+    "panels": [
+        {
+            "title": "Classification Access Overview",
+            "type": "timeseries",
+            "datasource": "Prometheus",
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 0
+            },
+            "targets": [
+                {
+                    "expr": "sum by (level) (rate(dive25_classification_access_total[5m]))",
+                    "legendFormat": "{{level}}"
+                }
+            ]
+        },
+        {
+            "title": "Partner Access by Country",
+            "type": "piechart",
+            "datasource": "Prometheus",
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 0
+            },
+            "targets": [
+                {
+                    "expr": "sum by (country) (dive25_partner_access_total)",
+                    "legendFormat": "{{country}}"
+                }
+            ]
+        },
+        {
+            "title": "Active COI Usage",
+            "type": "barchart",
+            "datasource": "Prometheus",
+            "gridPos": {
+                "h": 8,
+                "w": 24,
+                "x": 0,
+                "y": 8
+            },
+            "targets": [
+                {
+                    "expr": "sum by (coi_id) (dive25_active_coi_users)",
+                    "legendFormat": "{{coi_id}}"
+                }
+            ]
+        },
+        {
+            "title": "Security Violations",
+            "type": "timeseries",
+            "datasource": "Prometheus",
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 16
+            },
+            "targets": [
+                {
+                    "expr": "sum(rate(dive25_classification_denials_total[5m]))",
+                    "legendFormat": "Classification Violations"
+                },
+                {
+                    "expr": "sum(rate(dive25_coi_denials_total[5m]))",
+                    "legendFormat": "COI Violations"
+                }
+            ]
+        },
+        {
+            "title": "Authentication Performance",
+            "type": "heatmap",
+            "datasource": "Prometheus",
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 16
+            },
+            "targets": [
+                {
+                    "expr": "rate(dive25_auth_duration_seconds_bucket[5m])",
+                    "format": "heatmap"
+                }
+            ]
+        }
+    ],
+    "refresh": "5s",
+    "schemaVersion": 38,
+    "style": "dark",
+    "tags": [
+        "nato",
+        "security"
+    ],
+    "templating": {
+        "list": [
+            {
+                "name": "partner_type",
+                "type": "query",
+                "query": "label_values(dive25_partner_access_total, partner_type)"
+            }
+        ]
+    },
+    "time": {
+        "from": "now-6h",
+        "to": "now"
+    },
+    "title": "NATO Security Dashboard",
+    "uid": "nato-security",
+    "version": 1
+}
