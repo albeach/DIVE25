@@ -8,7 +8,8 @@ import {
     MetricValue,
     HealthStatus,
     ClearanceLevel,
-    UserAttributes
+    UserAttributes,
+    MetricLabels
 } from '../types';
 
 /**
@@ -369,6 +370,25 @@ export class MetricsService {
             this.logger.error('Error calculating average response time:', error);
             return 0;
         }
+    }
+
+    public recordMetric(name: string, labels: MetricLabels): void {
+        // Your existing metric recording logic
+    }
+
+    public recordAuthSuccess(partnerId: string): void {
+        this.recordMetric('auth_success', { partner: partnerId });
+    }
+
+    public recordAuthFailure(error: string, partnerId: string): void {
+        this.recordMetric('auth_failure', {
+            error,
+            partner: partnerId
+        });
+    }
+
+    public recordAuthDuration(duration: number): void {
+        this.recordMetric('auth_duration', { value: duration });
     }
 }
 

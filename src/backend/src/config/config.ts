@@ -36,13 +36,13 @@ export const config = {
     oauth: oauthConfig,
     ldapAdapter: ldapAdapterConfig,
     authPolicy: authPolicyConfig,
-    
+
     // Runtime settings
     sessionValidation: {
       enabled: true,
       timeoutMinutes: 30
     },
-    
+
     corsOrigins: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3000'],
 
     // Federation settings
@@ -63,5 +63,11 @@ export const config = {
     encryptionKey: process.env.STORAGE_ENCRYPTION_KEY || 'default-encryption-key',
     archiveVersions: process.env.STORAGE_ARCHIVE_VERSIONS === 'true',
     malwareScan: process.env.STORAGE_MALWARE_SCAN === 'true'
+  },
+  keycloak: {
+    url: process.env.KEYCLOAK_URL || 'http://keycloak:8080',
+    realm: 'dive25',
+    clientId: 'dive25-api',
+    clientSecret: process.env.KEYCLOAK_CLIENT_SECRET
   },
 };

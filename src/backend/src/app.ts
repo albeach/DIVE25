@@ -3,7 +3,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { config } from './config/config';
-import AuthMiddleware from './middleware/AuthMiddleware';
+import { AuthMiddleware } from './middleware/AuthMiddleware';
 import DocumentRoutes from './routes/DocumentRoutes';
 import { DatabaseService } from './services/DatabaseService';
 import { LoggerService } from './services/LoggerService';
@@ -125,9 +125,10 @@ class App {
         });
 
         // API routes
+        const authMiddleware = AuthMiddleware.getInstance();
         this.app.use(
             '/api/documents',
-            AuthMiddleware.authenticate,
+            authMiddleware.authenticate,
             documentRoutes.getRouter()
         );
     }

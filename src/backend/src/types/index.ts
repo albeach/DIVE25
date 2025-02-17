@@ -54,13 +54,26 @@ export interface DocumentOperationResult<T> {
 }
 
 // User-related interfaces
+export interface COIAccess {
+    id: string;
+    name: string;
+    level: string;
+    validFrom: Date;
+    validTo?: Date;
+}
+
 export interface UserAttributes {
     uniqueIdentifier: string;
-    countryOfAffiliation: string;
-    clearance: ClearanceLevel;
-    coiTags?: CoiTag[];
-    lacvCode?: LacvCode;
-    organizationalAffiliation?: string;
+    organization: string;
+    clearance: string;
+    coiAccess: COIAccess[];  // Array of COI objects with metadata
+    releasabilityAccess: string[];
+    metadata?: {
+        lastLogin?: Date;
+        accessLevel?: string;
+        partnerType?: string;
+        federationId?: string;
+    };
 }
 
 export interface AuthenticatedRequest extends Request {
@@ -293,13 +306,19 @@ export interface AuditLogDocument {
 }
 
 export interface ResourceAttributes {
-    clearance: ClearanceLevel;
-    releasableTo?: ReleasabilityMarker[];
-    coiTags?: CoiTag[];
-    lacvCode?: LacvCode;
+    path: string;
+    method: string;
+    resourceType?: string;
+    classification?: string;
+    coi?: string[];
+    releasability?: string[];
 }
 
 export interface OPAResult {
     allow: boolean;
     reason?: string;
+}
+
+export interface MetricLabels {
+    [key: string]: string | number;
 }

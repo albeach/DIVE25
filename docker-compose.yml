@@ -170,6 +170,54 @@ services:
     networks:
       - dive25-net
 
+  # Add Kong Gateway
+  kong:
+    image: kong:3.5
+    environment:
+      KONG_DATABASE: "off"
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_LISTEN: "0.0.0.0:8001"
+    ports:
+      - "8000:8000"  # Proxy listener
+      - "8443:8443"  # Proxy SSL listener
+      - "8001:8001"  # Admin API
+    volumes:
+      - ./kong/kong.yml:/usr/local/kong/declarative/kong.yml
+    command: "kong start --v"
+
+  # Add Keycloak and its database
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD}
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+    ports:
+      - "8080:8080"
+    depends_on:
+      - keycloak-db
+    networks:
+      - dive25-net
+
+  keycloak-db:
+    image: postgres:13
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KC_DB_PASSWORD}
+    volumes:
+      - keycloak_data:/var/lib/postgresql/data
+    networks:
+      - dive25-net
+
 networks:
   dive25-net:
     driver: bridge
@@ -183,3 +231,4 @@ volumes:
   mongodb_data:
   prometheus_data:
   grafana_data:
+  keycloak_data:

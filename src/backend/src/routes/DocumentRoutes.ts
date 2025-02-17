@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import AuthMiddleware from '../middleware/AuthMiddleware';
+import { AuthMiddleware } from '../middleware/AuthMiddleware';
 import DocumentAccessMiddleware from '../middleware/DocumentAccess';
 import DocumentValidationMiddleware from '../middleware/DocumentValidation';
 import { DocumentController } from '../controllers/DocumentController';
@@ -17,12 +17,14 @@ export class DocumentRoutes {
     private readonly documentController: DocumentController;
     private readonly logger: LoggerService;
     private readonly metrics: MetricsService;
+    private readonly authMiddleware: AuthMiddleware;
 
     private constructor() {
         this.router = Router();
         this.documentController = DocumentController.getInstance();
         this.logger = LoggerService.getInstance();
         this.metrics = MetricsService.getInstance();
+        this.authMiddleware = AuthMiddleware.getInstance();
         this.initializeRoutes();
     }
 
@@ -38,8 +40,8 @@ export class DocumentRoutes {
     }
 
     private initializeRoutes(): void {
-        this.router.use(AuthMiddleware.authenticate);
-        this.router.use(AuthMiddleware.extractUserAttributes);
+        this.router.use(this.authMiddleware.authenticate);
+        this.router.use(this.authMiddleware.extractUserAttributes);
 
         this.router.get('/:id',
             DocumentAccessMiddleware.validateAccess,
@@ -51,20 +53,20 @@ export class DocumentRoutes {
         );
 
         this.router.post('/',
-            AuthMiddleware.requireClearance('NATO CONFIDENTIAL'),
+            this.authMiddleware.requireClearance('NATO CONFIDENTIAL'),
             DocumentValidationMiddleware.validateDocument,
             this.wrapRoute(this.handleCreateDocument.bind(this))
         );
 
         this.router.put('/:id',
-            AuthMiddleware.requireClearance('NATO CONFIDENTIAL'),
+            this.authMiddleware.requireClearance('NATO CONFIDENTIAL'),
             DocumentAccessMiddleware.validateAccess,
             DocumentValidationMiddleware.validateDocument,
             this.wrapRoute(this.handleUpdateDocument.bind(this))
         );
 
         this.router.delete('/:id',
-            AuthMiddleware.requireClearance('NATO SECRET'),
+            this.authMiddleware.requireClearance('NATO SECRET'),
             DocumentAccessMiddleware.validateAccess,
             this.wrapRoute(this.handleDeleteDocument.bind(this))
         );
