@@ -36,9 +36,9 @@ log() {
 # Function to set up wait-for-it script
 setup_wait_for_it() {
     log "INFO" "Setting up wait-for-it script..."
-    mkdir -p "${SCRIPT_DIR}/scripts"
-    cp "${SCRIPT_DIR}/wait-for-it.sh" "${SCRIPT_DIR}/scripts/"
-    chmod +x "${SCRIPT_DIR}/scripts/wait-for-it.sh"
+    
+    # No need to copy since it already exists in the right place
+    chmod +x "${SCRIPT_DIR}/scripts/deployment/wait-for-it.sh"
 }
 
 # Function to check prerequisites
@@ -79,12 +79,23 @@ check_required_env_vars() {
         . .env
         set +a
     fi
-    local required_vars=("WP_DB_PASSWORD" "MYSQL_ROOT_PASSWORD" "MONGO_ROOT_USER" "MONGO_ROOT_PASSWORD" "GRAFANA_ADMIN_PASSWORD")
+    local required_vars=(
+        "WP_DB_PASSWORD" 
+        "MYSQL_ROOT_PASSWORD" 
+        "MONGO_ROOT_USER" 
+        "MONGO_ROOT_PASSWORD" 
+        "GRAFANA_ADMIN_PASSWORD"
+        "PING_IDENTITY_PASSWORD"
+    )
+    
     for var in "${required_vars[@]}"; do
         if [ -z "${!var}" ]; then
             if [ "$var" = "MONGO_ROOT_USER" ]; then
                 log "INFO" "Environment variable MONGO_ROOT_USER is not set, defaulting to 'dive25mongo'."
                 export MONGO_ROOT_USER="dive25mongo"
+            elif [ "$var" = "PING_IDENTITY_PASSWORD" ]; then
+                log "INFO" "Setting default PING_IDENTITY_PASSWORD to '2FederateM0re'"
+                export PING_IDENTITY_PASSWORD="2FederateM0re"
             else
                 read -s -p "Enter value for $var: " value
                 echo ""
@@ -129,7 +140,7 @@ configure_ping_identity() {
 # Function to deploy development environment
 deploy_development() {
     log "INFO" "Starting development environment deployment..."
-    
+
     # Setup development certificates
     setup_development_certificates
     
@@ -157,7 +168,7 @@ deploy_development() {
 # Function to deploy production environment
 deploy_production() {
     log "INFO" "Starting production environment deployment..."
-    
+
     # Prompt to optionally skip Let's Encrypt certificate generation
     read -p "Do you want to skip Let's Encrypt certificate generation? (y/N): " skip_cert_input
     skip_cert_input_lower=$(echo "$skip_cert_input" | tr '[:upper:]' '[:lower:]')

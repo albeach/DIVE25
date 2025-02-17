@@ -54,6 +54,17 @@ deploy_docker_containers() {
         exit 1
     fi
 
+    # Check if swarm is needed (only for prod)
+    if [[ "$environment" == "prod" ]]; then
+        if ! docker info | grep -q "Swarm: active"; then
+            log "INFO" "Initializing Docker Swarm mode..."
+            if ! docker swarm init --advertise-addr 127.0.0.1 >/dev/null 2>&1; then
+                log "ERROR" "Failed to initialize Docker Swarm"
+                exit 1
+            fi
+        fi
+    fi
+
     # Set environment variables
     export COMPOSE_PROJECT_NAME="dive25"
     export DOCKER_BUILDKIT=1
@@ -79,14 +90,14 @@ EOL
                       -f "${SCRIPT_DIR}/docker-compose.${environment}.yml" up -d pingdirectory
         
         # Wait for PingDirectory
-        "${SCRIPT_DIR}/scripts/wait-for-it.sh" localhost:1389 -t 120
+        "${SCRIPT_DIR}/scripts/deployment/wait-for-it.sh" "127.0.0.1:1389" -t 120
 
         # Start PingFederate
         docker compose -f "${SCRIPT_DIR}/docker-compose.yml" \
                       -f "${SCRIPT_DIR}/docker-compose.${environment}.yml" up -d pingfederate
         
         # Wait for PingFederate
-        "${SCRIPT_DIR}/scripts/wait-for-it.sh" localhost:9031 -t 120
+        "${SCRIPT_DIR}/scripts/deployment/wait-for-it.sh" "127.0.0.1:9031" -t 120
 
         # Start remaining services
         docker compose -f "${SCRIPT_DIR}/docker-compose.yml" \
@@ -101,14 +112,14 @@ EOL
                            -f "${SCRIPT_DIR}/docker-compose.${environment}.yml" up -d pingdirectory
         
         # Wait for PingDirectory
-        sudo "${SCRIPT_DIR}/scripts/wait-for-it.sh" localhost:1389 -t 120
+        sudo "${SCRIPT_DIR}/scripts/deployment/wait-for-it.sh" "127.0.0.1:1389" -t 120
 
         # Start PingFederate
         sudo docker compose -f "${SCRIPT_DIR}/docker-compose.yml" \
                            -f "${SCRIPT_DIR}/docker-compose.${environment}.yml" up -d pingfederate
         
         # Wait for PingFederate
-        sudo "${SCRIPT_DIR}/scripts/wait-for-it.sh" localhost:9031 -t 120
+        sudo "${SCRIPT_DIR}/scripts/deployment/wait-for-it.sh" "127.0.0.1:9031" -t 120
 
         # Start remaining services
         sudo docker compose -f "${SCRIPT_DIR}/docker-compose.yml" \
@@ -223,11 +234,29 @@ monitor_container_startup() {
     
     log "INFO" "Monitoring startup of ${container_name} on port ${port}"
     
-    if "${SCRIPT_DIR}/scripts/wait-for-it.sh" "localhost:${port}" -t "${timeout}"; then
+    if "${SCRIPT_DIR}/scripts/deployment/wait-for-it.sh" "localhost:${port}" -t "${timeout}"; then
         log "INFO" "${container_name} is available on port ${port}"
         return 0
     else
         log "ERROR" "Failed to connect to ${container_name} on port ${port}"
         return 1
+    fi
+}
+
+# Add cleanup function for when switching environments
+cleanup_docker_environment() {
+    local environment=$1
+    
+    log "INFO" "Cleaning up Docker environment..."
+    
+    # Remove all containers and networks
+    docker compose down --remove-orphans
+    
+    # If we're switching environments, leave swarm mode
+    if [[ "$environment" == "dev" ]]; then
+        if docker info | grep -q "Swarm: active"; then
+            log "INFO" "Leaving swarm mode for development environment..."
+            docker swarm leave --force
+        fi
     fi
 }
