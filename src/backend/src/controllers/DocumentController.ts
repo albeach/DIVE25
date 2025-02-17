@@ -20,6 +20,8 @@ import {
 } from '../types';
 import { DocumentContent } from '../models/Document';
 import { asAuthError } from '../middleware/errorHandler';
+import { StorageService } from '../services/StorageService';
+import { DocumentError } from '../errors/DocumentError';
 
 const id = new ObjectId();
 
@@ -31,6 +33,7 @@ export class DocumentController {
     private readonly storage: DocumentStorageService;
     private readonly security: SecurityValidationService;
     private readonly metrics: MetricsService;
+    private readonly storageService: StorageService;
 
     private constructor() {
         this.db = DatabaseService.getInstance();
@@ -39,6 +42,7 @@ export class DocumentController {
         this.storage = DocumentStorageService.getInstance();
         this.security = SecurityValidationService.getInstance();
         this.metrics = MetricsService.getInstance();
+        this.storageService = StorageService.getInstance();
     }
 
     public static getInstance(): DocumentController {
@@ -102,10 +106,21 @@ export class DocumentController {
                 duration: Date.now() - startTime
             });
 
-            res.json({
-                document,
-                content: content.content
-            });
+            // File download if requested
+            if (req.query.download === 'true') {
+                const fileStream = await this.storageService.getFileStream(
+                    content.location.bucket,
+                    content.location.key
+                );
+                res.setHeader('Content-Type', content.mimeType);
+                res.setHeader('Content-Disposition', `attachment; filename="${document.title}"`);
+                fileStream.pipe(res);
+            } else {
+                res.json({
+                    document,
+                    content: content.content
+                });
+            }
 
         } catch (error) {
             this.handleError(error, req, res);
@@ -200,53 +215,42 @@ export class DocumentController {
      * Creates a new document with security metadata.
      * Validates user has appropriate clearance to create documents at specified level.
      */
-    public async createDocument(
-        documentData: Partial<NATODocument>,
-        userAttributes: UserAttributes
-    ): Promise<NATODocument> {
-        const startTime = Date.now();
+    public async createDocument(req: AuthenticatedRequest, res: Response): Promise<void> {
         try {
-            // Ensure user has sufficient clearance to create document
-            if (!documentData.clearance || !this.hasAdequateClearance(userAttributes.clearance, documentData.clearance)) {
-                throw this.createError(
-                    'Insufficient clearance to create document',
-                    403,
-                    'DOC004',
-                    { requiredClearance: documentData.clearance }
-                );
-            }
+            const { file, ...documentData } = req.body;
+            const user = req.userAttributes;
 
-            const newDocument = await this.db.createDocument({
+            // Upload file to storage
+            const storageLocation = await this.storageService.uploadFile(file, {
+                classification: documentData.classification,
+                coiTags: documentData.coiTags
+            });
+
+            // Create document record
+            const document = new Document({
                 ...documentData,
                 metadata: {
-                    createdAt: new Date(),
-                    createdBy: userAttributes.uniqueIdentifier,
-                    lastModified: new Date(),
-                    version: 1
-                }
-            } as Omit<NATODocument, '_id'>);
-
-            // Record metrics
-            this.metrics.recordHttpRequest('POST', '/documents', 201, Date.now() - startTime);
-
-            this.logger.info('Document created', {
-                userId: userAttributes.uniqueIdentifier,
-                documentId: newDocument._id,
-                clearance: newDocument.clearance,
-                duration: Date.now() - startTime
+                    createdBy: user.uniqueIdentifier,
+                    lastModifiedBy: user.uniqueIdentifier,
+                    checksum: await this.storageService.calculateChecksum(file),
+                    mimeType: file.mimetype,
+                    size: file.size
+                },
+                storageLocation
             });
 
-            return newDocument;
+            await document.save();
 
+            this.logger.auditAccess(req, 'SUCCESS', {
+                actionType: 'CREATE',
+                resourceId: document._id,
+                classification: document.classification
+            });
+
+            res.status(201).json(document);
         } catch (error) {
-            const typedError = asAuthError(error);
-
-            this.logger.error('Error creating document', {
-                error: typedError,
-                userId: userAttributes.uniqueIdentifier
-            });
-
-            throw typedError;
+            this.logger.auditError(req, error as Error);
+            throw new DocumentError('Failed to create document', 500, error as Error);
         }
     }
 
@@ -255,100 +259,98 @@ export class DocumentController {
      * Ensures user has appropriate clearance and authorization to modify the document.
      */
     public async updateDocument(req: AuthenticatedRequest, res: Response): Promise<void> {
-        const startTime = Date.now();
         try {
-            const documentId = req.params.id;
+            const { id } = req.params;
+            const { file, ...updateData } = req.body;
+            const user = req.userAttributes;
 
-            if (!ObjectId.isValid(documentId)) {
-                throw this.createError('Invalid document ID', 400, 'DOC001');
+            const document = await this.db.getDocument(id);
+            if (!document) {
+                throw new DocumentError('Document not found', 404);
             }
 
-            const existingDocument = await this.db.getDocument(documentId);
-            if (!existingDocument) {
-                throw this.createError('Document not found', 404, 'DOC002');
-            }
-
-            // Validate security modifications
-            const modificationResult = await this.security.validateSecurityModification(
-                existingDocument,
-                req.body,
-                req.userAttributes
-            );
-
-            if (!modificationResult.valid) {
-                throw this.createError(
-                    'Invalid security modifications',
-                    400,
-                    'DOC006',
-                    { errors: modificationResult.errors }
+            // Handle file update if provided
+            if (file) {
+                // Delete old file
+                await this.storage.deleteFile(
+                    document.storageLocation.bucket,
+                    document.storageLocation.key
                 );
+
+                // Upload new file
+                const storageLocation = await this.storage.uploadFile(file, {
+                    classification: updateData.classification || document.classification,
+                    coiTags: updateData.coiTags || document.coiTags
+                });
+
+                updateData.storageLocation = storageLocation;
+                updateData.metadata = {
+                    ...document.metadata,
+                    lastModifiedBy: user.uniqueIdentifier,
+                    lastModifiedAt: new Date(),
+                    version: document.metadata.version + 1,
+                    checksum: await this.storage.calculateChecksum(file),
+                    mimeType: file.mimetype,
+                    size: file.size
+                };
             }
 
-            const updatedDocument = await this.db.updateDocument(documentId, {
-                ...req.body,
+            const updatedDocument = await this.db.updateDocument(id, {
+                ...updateData,
                 metadata: {
-                    ...existingDocument.metadata,
-                    lastModified: new Date(),
-                    version: existingDocument.metadata.version + 1,
-                    lastModifiedBy: req.userAttributes.uniqueIdentifier
+                    ...document.metadata,
+                    lastModifiedBy: user.uniqueIdentifier,
+                    lastModifiedAt: new Date()
                 }
             });
 
-            // Record metrics
-            await this.metrics.recordDocumentAccess(
-                updatedDocument.clearance as ClearanceLevel,
-                true,
-                { operation: 'update' }
-            );
-
-            this.logger.info('Document updated', {
-                userId: req.userAttributes.uniqueIdentifier,
-                documentId,
-                version: updatedDocument.metadata.version
+            this.logger.auditAccess(req, 'SUCCESS', {
+                actionType: 'UPDATE',
+                resourceId: id,
+                classification: updatedDocument.classification
             });
 
-            res.json({ document: updatedDocument });
-
+            res.json(updatedDocument);
         } catch (error) {
-            this.handleError(error, req, res);
+            this.logger.auditError(req, error as Error);
+            throw new DocumentError('Failed to update document', 500, error as Error);
         }
     }
 
-    public async deleteDocument(id: string, userAttributes: UserAttributes): Promise<boolean> {
+    public async deleteDocument(req: AuthenticatedRequest, res: Response): Promise<void> {
         try {
+            const { id } = req.params;
             const document = await this.db.getDocument(id);
+
             if (!document) {
-                return false;
+                throw new DocumentError('Document not found', 404);
             }
 
-            // Check delete permissions using OPA
-            const deleteResult = await this.opa.evaluateUpdateAccess(
-                userAttributes,
-                document
+            // Delete file from storage
+            await this.storage.deleteFile(
+                document.storageLocation.bucket,
+                document.storageLocation.key
             );
 
-            if (!deleteResult.allow) {
-                throw this.createError(
-                    'Insufficient permissions to delete document',
-                    403,
-                    'DOC005',
-                    { reason: deleteResult.reason }
-                );
-            }
-
-            const deleted = await this.db.deleteDocument(id);
-
-            // Record metrics
-            this.metrics.recordOperationMetrics('document_delete', {
-                documentId: id,
-                success: deleted
+            // Soft delete by updating status to ARCHIVED
+            await this.db.updateDocument(id, {
+                status: 'ARCHIVED',
+                metadata: {
+                    lastModifiedBy: req.userAttributes.uniqueIdentifier,
+                    lastModifiedAt: new Date()
+                }
             });
 
-            return deleted;
+            this.logger.auditAccess(req, 'SUCCESS', {
+                actionType: 'DELETE',
+                resourceId: id,
+                classification: document.classification
+            });
 
+            res.status(204).send();
         } catch (error) {
-            this.logger.error('Error deleting document:', error as Error);
-            throw this.createStorageError((error as Error).message, 500, 'DOC008', { originalError: error });
+            this.logger.auditError(req, error as Error);
+            throw new DocumentError('Failed to delete document', 500, error as Error);
         }
     }
 
@@ -755,6 +757,86 @@ export class DocumentController {
             details: typedError.details
         });
     }
+
+    public createVersion = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+        try {
+            const { id } = req.params;
+            const { file, comment } = req.body;
+            const user = req.userAttributes;
+
+            const document = await this.db.getDocument(id);
+            if (!document) {
+                throw new DocumentError('Document not found', 404);
+            }
+
+            // Store old version details
+            const oldVersion = {
+                documentId: document._id,
+                version: document.metadata.version,
+                storageLocation: document.storageLocation,
+                metadata: document.metadata,
+                comment
+            };
+
+            // Upload new version
+            const storageLocation = await this.storage.uploadFile(file, {
+                classification: document.classification,
+                coiTags: document.coiTags
+            });
+
+            // Update document with new version
+            const updatedDocument = await this.db.updateDocument(id, {
+                storageLocation,
+                metadata: {
+                    ...document.metadata,
+                    version: document.metadata.version + 1,
+                    lastModifiedBy: user.uniqueIdentifier,
+                    lastModifiedAt: new Date(),
+                    checksum: await this.storage.calculateChecksum(file),
+                    mimeType: file.mimetype,
+                    size: file.size
+                }
+            });
+
+            // Store version history
+            await this.storage.storeVersionHistory(oldVersion);
+
+            this.logger.auditAccess(req, 'SUCCESS', {
+                actionType: 'CREATE_VERSION',
+                resourceId: id,
+                classification: document.classification
+            });
+
+            res.json(updatedDocument);
+        } catch (error) {
+            this.logger.auditError(req, error as Error);
+            throw new DocumentError('Failed to create version', 500, error as Error);
+        }
+    };
+
+    public listVersions = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+        try {
+            const { id } = req.params;
+            const document = await this.db.getDocument(id);
+
+            if (!document) {
+                throw new DocumentError('Document not found', 404);
+            }
+
+            const versions = await this.storage.getVersionHistory(id);
+
+            this.logger.auditAccess(req, 'SUCCESS', {
+                actionType: 'LIST_VERSIONS',
+                resourceId: id,
+                classification: document.classification
+            });
+
+            res.json(versions);
+        } catch (error) {
+            this.logger.auditError(req, error as Error);
+            throw new DocumentError('Failed to list versions', 500, error as Error);
+        }
+    };
 }
 
 export default DocumentController.getInstance();

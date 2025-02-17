@@ -10,6 +10,8 @@ import {
     NATODocument,
     ApiResponse,
 } from '../types';
+import { ValidateRequest } from '../middleware/ValidationMiddleware';
+import { documentSchemas } from '../validators/documentSchemas';
 
 export class DocumentRoutes {
     private static _instance: DocumentRoutes | null = null;
@@ -44,21 +46,25 @@ export class DocumentRoutes {
         this.router.use(this.authMiddleware.extractUserAttributes);
 
         this.router.get('/:id',
+            ValidateRequest(documentSchemas.getById),
             DocumentAccessMiddleware.validateAccess,
             this.wrapRoute(this.handleGetDocument.bind(this))
         );
 
         this.router.post('/search',
+            ValidateRequest(documentSchemas.list),
             this.wrapRoute(this.handleSearchDocuments.bind(this))
         );
 
         this.router.post('/',
+            ValidateRequest(documentSchemas.create),
             this.authMiddleware.requireClearance('NATO CONFIDENTIAL'),
             DocumentValidationMiddleware.validateDocument,
             this.wrapRoute(this.handleCreateDocument.bind(this))
         );
 
         this.router.put('/:id',
+            ValidateRequest(documentSchemas.update),
             this.authMiddleware.requireClearance('NATO CONFIDENTIAL'),
             DocumentAccessMiddleware.validateAccess,
             DocumentValidationMiddleware.validateDocument,
@@ -66,9 +72,20 @@ export class DocumentRoutes {
         );
 
         this.router.delete('/:id',
+            ValidateRequest(documentSchemas.delete),
             this.authMiddleware.requireClearance('NATO SECRET'),
             DocumentAccessMiddleware.validateAccess,
             this.wrapRoute(this.handleDeleteDocument.bind(this))
+        );
+
+        this.router.post('/:id/versions',
+            ValidateRequest(documentSchemas.createVersion),
+            this.wrapRoute(this.handleCreateVersion.bind(this))
+        );
+
+        this.router.get('/:id/versions',
+            ValidateRequest(documentSchemas.listVersions),
+            this.wrapRoute(this.handleListVersions.bind(this))
         );
     }
 
@@ -175,6 +192,38 @@ export class DocumentRoutes {
             };
 
             res.status(deleted ? 200 : 404).json(response);
+        } catch (error) {
+            this.handleError(error, req, res);
+        }
+    }
+
+    private async handleCreateVersion(req: AuthenticatedRequest, res: Response): Promise<void> {
+        const startTime = Date.now();
+        try {
+            await this.documentController.createVersion(req, res);
+
+            await this.metrics.recordHttpRequest(
+                req.method,
+                req.path,
+                201,
+                Date.now() - startTime
+            );
+        } catch (error) {
+            this.handleError(error, req, res);
+        }
+    }
+
+    private async handleListVersions(req: AuthenticatedRequest, res: Response): Promise<void> {
+        const startTime = Date.now();
+        try {
+            await this.documentController.listVersions(req, res);
+
+            await this.metrics.recordHttpRequest(
+                req.method,
+                req.path,
+                200,
+                Date.now() - startTime
+            );
         } catch (error) {
             this.handleError(error, req, res);
         }
