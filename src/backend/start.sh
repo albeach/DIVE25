@@ -242,6 +242,44 @@ load_ssl_certificates() {
     return 1
 }
 
+# Add this function to handle SSL certificate setup
+setup_ssl_certificates() {
+    local env_type=$1
+    local domain=$2
+    local email=$3
+
+    echo "Setting up SSL certificates..."
+
+    # Create directories with proper permissions
+    sudo mkdir -p /etc/letsencrypt
+    sudo mkdir -p /var/log/letsencrypt
+    sudo mkdir -p /var/lib/letsencrypt
+
+    if [ "$env_type" = "production" ]; then
+        echo "Obtaining Let's Encrypt SSL certificate..."
+        # Run certbot with proper permissions
+        sudo certbot certonly \
+            --standalone \
+            --agree-tos \
+            --non-interactive \
+            --email "$email" \
+            --domains "$domain" \
+            --logs-dir /var/log/letsencrypt \
+            --config-dir /etc/letsencrypt \
+            --work-dir /var/lib/letsencrypt
+
+        # Copy certificates to our application directory
+        sudo mkdir -p src/backend/certificates/prod
+        sudo cp /etc/letsencrypt/live/$domain/fullchain.pem src/backend/certificates/prod/
+        sudo cp /etc/letsencrypt/live/$domain/privkey.pem src/backend/certificates/prod/
+        
+        # Set proper permissions
+        sudo chown -R $USER:$USER src/backend/certificates/prod
+        sudo chmod 644 src/backend/certificates/prod/fullchain.pem
+        sudo chmod 600 src/backend/certificates/prod/privkey.pem
+    fi
+}
+
 # Modify the case statement in the main script
 case $choice in
     2) # Staging
@@ -260,3 +298,11 @@ case $choice in
         load_test_data
         ;;
 esac 
+
+# Add user to proper groups
+sudo usermod -aG docker $USER
+sudo usermod -aG ssl-cert $USER
+
+# Create directories with proper permissions
+sudo mkdir -p /etc/letsencrypt /var/log/letsencrypt /var/lib/letsencrypt
+sudo chown -R $USER:$USER /etc/letsencrypt /var/log/letsencrypt /var/lib/letsencrypt 
