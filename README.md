@@ -1,14 +1,17 @@
+# DIVE25 - Federated Identity Management and Access Control System
+
+## Quick Start
 
 ![DIVE25-ProjSnooze-Header-v1 2](https://github.com/user-attachments/assets/9a94e85a-fd86-4758-8ee6-607cdd23ec3b)
 
 # DIVE25 | Project Snooze Control | Deployment Runbook
 
 ## Overview
-DIVE25 is a secure identity and access management platform integrating Ping Identity solutions with containerized deployments. This repository contains the deployment runbooks, configurations, and automation scripts for managing and maintaining the DIVE25 platform across different environments.
+DIVE25 is a secure identity and access management platform integrating open-source frameworks with containerized deployments. This repository contains the deployment runbooks, configurations, and automation scripts for managing and maintaining the DIVE25 platform across different environments.
 
 In a multi-partner NATO environment, enabling secure, controlled access to a centralized repository of sensitive documents requires robust identity federation and Attribute-Based Access Control (ABAC). By adhering to NATO STANAGs (4774, 4778, and 5636) and NATO Security Policy, this report outlines a comprehensive approach for:
 
-- **Federated Authentication**: Integrating multiple Identity Providers (IdPs) through PingFederate.
+- **Federated Authentication**: Integrating multiple Identity Providers (IdPs) through Kong.
 - **Standardized Attributes**: Ensuring attributes like classification level, caveats, nationality, and organizational affiliation are consistent and interoperable.
 - **OPA-based ABAC**: Using Open Policy Agent (OPA) and Rego policies to enforce fine-grained authorization decisions.
 - **Document Metadata Storage**: Using MongoDB for flexible and scalable metadata management.
@@ -34,20 +37,16 @@ The outcome is a system where users authenticate via their own IdP, attributes a
 ## System Requirements
 ### Prerequisites
 - Docker 24.0 or higher
-- Kubernetes 1.25 or higher
-- Helm 3.x
 - Node.js 18.x or higher
-- Ping Identity license files
 - SSL certificates (self-signed for development, Let's Encrypt for production)
-- Access to MongoDB, Redis, and MariaDB databases
+- Access to MongoDB, Redis, and PostgreSQL databases
 - Network connectivity to required services
 - Open Policy Agent (OPA) installed
-- WordPress for front-end integration
 
 ## Installation
 ### 1. Clone Repository
 ```bash
-git clone https://github.com/organization/dive25.git
+git clone https://github.com/albeach/dive25.git
 cd DIVE25
 ```
 
@@ -69,7 +68,7 @@ sudo apt install npm
 
 ---
 
-## Configuration
+## Configuration (Optional)
 ### Kubernetes Configuration
 Modify the necessary Kubernetes configuration files in `k8s/` before deployment.
 
@@ -77,13 +76,6 @@ Modify the necessary Kubernetes configuration files in `k8s/` before deployment.
 Ensure that Docker is set up correctly and required images are available.
 ```bash
 docker compose -f docker-compose.yml pull
-```
-
-### Helm Setup
-Ensure Helm charts are configured before deploying.
-```bash
-helm repo add pingidentity https://helm.pingidentity.com/
-helm repo update
 ```
 
 ### OPA Rego Policies
@@ -109,6 +101,50 @@ sudo ./deploy.sh --env prod
 ```bash
 kubectl apply -f k8s/namespace.yaml
 helm upgrade --install pingfederate pingidentity/pingfederate --namespace dive25 --values helm/values-pingfederate.yaml
+```
+
+### Deployment Options
+
+#### 1. Development Environment
+- Custom configuration for local development
+- Hot reloading enabled
+- Verbose logging
+- API documentation available
+
+Requirements:
+- Docker & Docker Compose
+- Node.js 18+
+- 4GB RAM recommended
+
+#### 2. Staging Environment
+- Pre-configured test environment
+- Sample data and users included
+- Monitoring enabled
+- Perfect for testing and demos
+
+Requirements:
+- Docker & Docker Compose
+- 8GB RAM recommended
+- 10GB free disk space
+
+#### 3. Production Environment
+- Full security features
+- SSL/TLS enabled
+- Automated backups
+- Monitoring and alerts
+
+Requirements:
+- Docker & Docker Compose
+- 16GB RAM recommended
+- 20GB free disk space
+- Domain name with DNS configured
+- Valid email for SSL certificates
+
+```bash
+# Select option 3 when running start.sh
+# You'll need to provide:
+- Domain name
+- SSL certificate email
 ```
 
 ---
@@ -315,6 +351,22 @@ open https://grafana.dive25.com/d/federation-overview
 - Automated OAuth security checks (`scripts/security/oauth-security-scanner.ts`)
 - SAML configuration analyzer (`scripts/security/saml-config-analyzer.ts`)
 
+### Credentials
+- Credentials are generated during installation
+- Saved to `credentials_[env].txt`
+- **IMPORTANT**: Save these securely and delete the file
+
+### Default Ports
+- API: 3000
+- MongoDB: 27017
+- Redis: 6379
+- Monitoring: 9090
+
+### SSL Certificates
+- Development: Self-signed
+- Staging: Self-signed
+- Production: Let's Encrypt
+
 ---
 
 ## Backup and Recovery
@@ -335,6 +387,34 @@ helm rollback pingaccess
 kubectl rollout restart deployment/api -n dive25
 ```
 
+### Health Checks
+```bash
+# Check service health
+curl http://localhost:3000/api/health
+
+# View logs
+docker-compose logs -f
+```
+
+### Backups
+```bash
+# Manual backup
+docker-compose exec mongodb mongodump
+
+# View backup status
+docker-compose exec mongodb ls /backup
+```
+
+### Updates
+```bash
+# Pull latest changes
+git pull
+
+# Restart services
+docker-compose down
+./start.sh  # Select same environment
+```
+
 ---
 
 ## Troubleshooting
@@ -344,6 +424,37 @@ kubectl rollout restart deployment/api -n dive25
 - **Certificate issues:** Ensure SSL certificates are valid and properly mounted.
 - **Service not reachable:** Check firewall rules and network policies.
 
+1. **Services won't start**
+```bash
+# Check logs
+docker-compose logs -f
+
+# Verify disk space
+df -h
+
+# Check memory
+free -m
+```
+
+2. **Database Connection Issues**
+```bash
+# Check MongoDB status
+docker-compose exec mongodb mongo --eval "db.serverStatus()"
+
+# Reset database
+docker-compose down -v
+./start.sh  # Select same environment
+```
+
+3. **SSL Certificate Issues**
+```bash
+# Manual SSL renewal
+docker-compose exec nginx certbot renew
+
+# Check certificate status
+docker-compose exec nginx certbot certificates
+```
+
 ---
 
 ## License
@@ -352,4 +463,6 @@ DIVE25 is licensed under [MIT License](LICENSE).
 # DIVE25 FedHub
 
 ## Quick Start (Ubuntu Server)
+
+### Staging (.env.staging)
 
