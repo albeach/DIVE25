@@ -5,6 +5,7 @@ set -e
 
 # Parse command line arguments
 ENV=${1:-production}  # Default to production if no argument provided
+CONFIG_FILE=".env.${ENV}"
 
 echo "Starting NATO Document Management System in $ENV mode..."
 
@@ -40,20 +41,79 @@ if [ "$ENV" = "production" ]; then
     (crontab -l 2>/dev/null; echo "0 0,12 * * * certbot renew --quiet") | crontab -
 fi
 
-# Choose compose file based on environment
-if [ "$ENV" = "development" ]; then
-    echo "Starting in development mode..."
-    docker-compose -f docker-compose.yml up -d mongodb opa prometheus grafana
-    npm install
-    npm run dev
-else
-    echo "Starting in production mode..."
-    docker-compose -f docker-compose.prod.yml up -d
+# Check if config file exists
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "Creating default $CONFIG_FILE with temporary secure passwords..."
+    
+    # Generate random passwords
+    DB_PASS=$(openssl rand -base64 12)
+    REDIS_PASS=$(openssl rand -base64 12)
+    KONG_PASS=$(openssl rand -base64 12)
+    KEYCLOAK_PASS=$(openssl rand -base64 12)
+    API_KEY=$(openssl rand -base64 32)
+    JWT_SECRET=$(openssl rand -base64 32)
+
+    # Create config file
+    cat > "$CONFIG_FILE" << EOL
+# Database Configuration
+DB_USER=dive25_admin
+DB_PASSWORD=$DB_PASS
+DB_NAME=dive25_docs
+
+# MongoDB Configuration
+MONGODB_URI=mongodb://dive25_admin:$DB_PASS@mongodb:27017/dive25_docs
+
+# Redis Configuration
+REDIS_HOST=redis
+REDIS_PASSWORD=$REDIS_PASS
+
+# Kong Configuration
+KONG_DB_USER=kong
+KONG_DB_PASSWORD=$KONG_PASS
+KONG_DATABASE=kong
+
+# Keycloak Configuration
+KEYCLOAK_DB_USER=keycloak
+KEYCLOAK_DB_PASSWORD=$KEYCLOAK_PASS
+KEYCLOAK_DB_NAME=keycloak
+
+# API Configuration
+API_KEY=$API_KEY
+JWT_SECRET=$JWT_SECRET
+EOL
+
+    echo "Created $CONFIG_FILE with secure temporary passwords"
+    echo "IMPORTANT: Please save these credentials and update them later:"
+    echo "Database Password: $DB_PASS"
+    echo "Redis Password: $REDIS_PASS"
+    echo "Kong Password: $KONG_PASS"
+    echo "Keycloak Password: $KEYCLOAK_PASS"
+    echo "API Key: $API_KEY"
 fi
 
-# Wait for services
+# Load environment variables
+set -a
+source "$CONFIG_FILE"
+set +a
+
+# Start services
+echo "Starting services..."
+docker-compose -f docker-compose.${ENV}.yml up -d
+
+# Wait for services to be healthy
 echo "Waiting for services to be ready..."
 sleep 10
+
+# Check service health
+echo "Checking service health..."
+if curl -f http://localhost:3000/api/health > /dev/null 2>&1; then
+    echo "Services are healthy!"
+else
+    echo "Services failed to start properly. Check logs with: docker-compose logs"
+    exit 1
+fi
+
+echo "Deployment complete!"
 
 # Check MongoDB
 if ! docker-compose exec mongodb mongosh --eval "db.adminCommand('ping')" > /dev/null; then
@@ -67,7 +127,6 @@ if ! curl -s http://localhost:8181/health > /dev/null; then
     exit 1
 fi
 
-echo "Services are healthy!"
 echo "API is running at http://localhost:3000"
 echo "Grafana dashboard at http://localhost:3002"
 echo "Prometheus metrics at http://localhost:9090"
@@ -76,4 +135,18 @@ echo "Prometheus metrics at http://localhost:9090"
 echo "Recent logs:"
 docker-compose logs --tail=50
 
-echo "Setup complete! Use 'docker-compose logs -f' to follow logs" 
+echo "Setup complete! Use 'docker-compose logs -f' to follow logs"
+
+# DIVE25 Quick Deploy
+
+1. Clone repo
+2. Edit backend/.env.production
+3. Run: ./backend/start.sh production
+4. Save displayed credentials
+5. Access at: https://your-domain.com
+
+Requirements:
+- Docker & Docker Compose
+- Node.js 18+
+- 2GB RAM minimum
+- Ubuntu 20.04+ recommended 
