@@ -42,6 +42,11 @@ export class MetricsService {
         partnerHealth: prometheus.Gauge;
         partnerResponseTime: prometheus.Histogram;
         databaseStatus: prometheus.Counter;
+        documentAccess: Counter;
+        documentOperations: Counter;
+        securityValidations: Counter;
+        operationDuration: Histogram;
+        activeUsers: Gauge;
     };
 
     // Metric retention configuration for compliance
@@ -217,6 +222,37 @@ export class MetricsService {
             name: 'partner_last_check_timestamp',
             help: 'Timestamp of last health check',
             labelNames: ['partner_id', 'partner_name']
+        });
+
+        this.metrics.documentAccess = new Counter({
+            name: 'document_access_total',
+            help: 'Total number of document access attempts',
+            labelNames: ['status', 'classification', 'country']
+        });
+
+        this.metrics.documentOperations = new Counter({
+            name: 'document_operations_total',
+            help: 'Total number of document operations',
+            labelNames: ['operation', 'status', 'classification']
+        });
+
+        this.metrics.securityValidations = new Counter({
+            name: 'security_validations_total',
+            help: 'Total number of security validations',
+            labelNames: ['type', 'status']
+        });
+
+        this.metrics.operationDuration = new Histogram({
+            name: 'operation_duration_seconds',
+            help: 'Duration of operations in seconds',
+            labelNames: ['operation'],
+            buckets: [0.1, 0.5, 1, 2, 5]
+        });
+
+        this.metrics.activeUsers = new Gauge({
+            name: 'active_users',
+            help: 'Number of currently active users',
+            labelNames: ['clearance_level']
         });
     }
 

@@ -1,4 +1,4 @@
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import { FederationMonitoringService } from '../services/FederationMonitoringService';
 import { MetricsService } from '../services/MetricsService';
 import { LoggerService } from '../services/LoggerService';
@@ -55,7 +55,7 @@ export class MonitoringController {
         res: Response
     ): Promise<void> {
         const startTime = Date.now();
-        
+
         try {
             const { partnerId } = req.params;
             this.validatePartnerId(partnerId);
@@ -101,7 +101,7 @@ export class MonitoringController {
 
         } catch (error) {
             const monitoringError = asAuthError(error);
-            
+
             this.logger.error('Error fetching partner metrics', {
                 error: monitoringError,
                 partnerId: req.params.partnerId,
@@ -166,7 +166,7 @@ export class MonitoringController {
 
         } catch (error) {
             const monitoringError = asAuthError(error);
-            
+
             this.logger.error('Error fetching health alerts', {
                 error: monitoringError,
                 userId: req.userAttributes.uniqueIdentifier
@@ -237,7 +237,7 @@ export class MonitoringController {
 
         } catch (error) {
             const monitoringError = asAuthError(error);
-            
+
             this.logger.error('Error fetching system metrics', {
                 error: monitoringError,
                 userId: req.userAttributes.uniqueIdentifier
@@ -268,7 +268,7 @@ export class MonitoringController {
 
         try {
             const { partnerId } = req.params;
-            
+
             // Validate authorization for metric reset
             await this.validateMetricResetAuthorization(
                 req.userAttributes,
@@ -299,7 +299,7 @@ export class MonitoringController {
 
         } catch (error) {
             const monitoringError = asAuthError(error);
-            
+
             this.logger.error('Error resetting metrics', {
                 error: monitoringError,
                 partnerId: req.params.partnerId,
@@ -371,7 +371,7 @@ export class MonitoringController {
     }
 
     private filterAlertsByClearance(alerts: any[], clearance: string) {
-        return alerts.filter(alert => 
+        return alerts.filter(alert =>
             this.hasAdequateClearance(clearance, alert.minimumClearance)
         );
     }
@@ -404,9 +404,9 @@ export class MonitoringController {
 
         await Promise.all(
             metricsToRecord.map(([name, value]) =>
-                this.metricsService.recordOperationMetrics(name as string, { 
+                this.metricsService.recordOperationMetrics(name as string, {
                     value: value as number,
-                    partnerId 
+                    partnerId
                 })
             )
         );
@@ -424,8 +424,8 @@ export class MonitoringController {
             'COSMIC TOP SECRET': 4
         };
 
-        return (clearanceLevels[userClearance] || 0) >= 
-               (clearanceLevels[requiredClearance] || 0);
+        return (clearanceLevels[userClearance] || 0) >=
+            (clearanceLevels[requiredClearance] || 0);
     }
 
     private async getSystemLoad(): Promise<number> {

@@ -15,10 +15,15 @@ import { config } from '../config/config';
 export class DatabaseService {
     private static instance: DatabaseService;
     private client: MongoClient;
-    private db: Db | null = null;
+    private db: Db;
     private readonly logger: LoggerService;
     private readonly metrics: MetricsService;
-    private collection!: Collection<NATODocument>;
+    private isConnected: boolean = false;
+
+    private readonly collections: {
+        documents: Collection<NATODocument>;
+        audit: Collection<any>;
+    };
 
     // Database configuration
     private readonly DB_CONFIG = {
@@ -36,15 +41,10 @@ export class DatabaseService {
     private constructor() {
         this.logger = LoggerService.getInstance();
         this.metrics = MetricsService.getInstance();
-
-        this.client = new MongoClient(config.mongo.uri, {
+        this.client = new MongoClient(config.mongodb.uri, {
             maxPoolSize: 50,
-            minPoolSize: 10,
-            maxConnecting: 10,
-            connectTimeoutMS: this.DB_CONFIG.CONNECTION_TIMEOUT,
-            socketTimeoutMS: this.DB_CONFIG.OPERATION_TIMEOUT,
-            retryWrites: true,
-            retryReads: true
+            connectTimeoutMS: 5000,
+            socketTimeoutMS: 45000,
         });
     }
 
@@ -56,20 +56,98 @@ export class DatabaseService {
     }
 
     public async connect(): Promise<void> {
+        if (this.isConnected) {
+            return;
+        }
+
         try {
             await this.client.connect();
-            this.db = this.client.db('dive25');
-            this.collection = this.db.collection('documents');
+            this.db = this.client.db(config.mongodb.dbName);
+            this.isConnected = true;
 
-            await this.createIndexes();
-            await this.validateCollections();
+            // Initialize collections with schemas
+            await this.initializeCollections();
 
-            this.logger.info('Database connection established');
-
+            this.logger.info('Successfully connected to database');
+            this.metrics.recordOperationMetrics('database_connection', {
+                duration: 0,
+                success: true
+            });
         } catch (error) {
-            this.logger.error('MongoDB connection error:', error);
-            this.metrics.recordOperationError('db_connection', error);
-            throw this.createDatabaseError('Failed to connect to database', error);
+            this.logger.error('Database connection error:', error);
+            this.metrics.recordOperationError('database_connection', error);
+            throw error;
+        }
+    }
+
+    private async initializeCollections(): Promise<void> {
+        try {
+            // Create collections if they don't exist
+            if (!await this.collectionExists('documents')) {
+                await this.db.createCollection('documents');
+                await this.createDocumentIndexes();
+            }
+
+            if (!await this.collectionExists('audit')) {
+                await this.db.createCollection('audit');
+                await this.createAuditIndexes();
+            }
+
+            // Initialize collection references
+            this.collections.documents = this.db.collection('documents');
+            this.collections.audit = this.db.collection('audit');
+        } catch (error) {
+            this.logger.error('Failed to initialize collections:', error);
+            throw error;
+        }
+    }
+
+    private async createDocumentIndexes(): Promise<void> {
+        await this.collections.documents.createIndexes([
+            { key: { title: 1 } },
+            { key: { classification: 1 } },
+            { key: { coiTags: 1 } },
+            { key: { createdAt: 1 } },
+            { key: { "metadata.author": 1 } }
+        ]);
+    }
+
+    private async createAuditIndexes(): Promise<void> {
+        await this.collections.audit.createIndexes([
+            { key: { timestamp: 1 } },
+            { key: { "user.uniqueIdentifier": 1 } },
+            { key: { action: 1 } },
+            { key: { resource: 1 } }
+        ]);
+    }
+
+    private async collectionExists(name: string): Promise<boolean> {
+        const collections = await this.db.listCollections().toArray();
+        return collections.some(col => col.name === name);
+    }
+
+    public getCollection<T>(name: string): Collection<T> {
+        if (!this.isConnected) {
+            throw new Error('Database not connected');
+        }
+        return this.db.collection<T>(name);
+    }
+
+    public async disconnect(): Promise<void> {
+        if (this.client && this.isConnected) {
+            await this.client.close();
+            this.isConnected = false;
+            this.logger.info('Disconnected from database');
+        }
+    }
+
+    public async healthCheck(): Promise<boolean> {
+        try {
+            await this.db.command({ ping: 1 });
+            return true;
+        } catch (error) {
+            this.logger.error('Database health check failed:', error);
+            return false;
         }
     }
 
@@ -85,12 +163,12 @@ export class DatabaseService {
             const sort = this.buildSortOptions(options.sort);
 
             const [documents, total] = await Promise.all([
-                this.collection.find(searchQuery)
+                this.collections.documents.find(searchQuery)
                     .sort(sort)
                     .skip((options.page - 1) * options.limit)
                     .limit(options.limit)
                     .toArray(),
-                this.collection.countDocuments(searchQuery)
+                this.collections.documents.countDocuments(searchQuery)
             ]);
 
             // Record metrics
@@ -120,7 +198,7 @@ export class DatabaseService {
         try {
             if (!ObjectId.isValid(id)) return null;
 
-            const doc = await this.collection.findOne({
+            const doc = await this.collections.documents.findOne({
                 _id: new ObjectId(id),
                 deleted: { $ne: true }
             });
@@ -145,7 +223,7 @@ export class DatabaseService {
         this.validateConnection();
 
         try {
-            const result = await this.collection.insertOne(document as NATODocument);
+            const result = await this.collections.documents.insertOne(document as NATODocument);
             const created = await this.getDocument(result.insertedId.toString());
 
             if (!created) {
@@ -171,7 +249,7 @@ export class DatabaseService {
         update: Partial<NATODocument>
     ): Promise<NATODocument | null> {
         this.validateConnection();
-        const result = await this.collection.findOneAndUpdate(
+        const result = await this.collections.documents.findOneAndUpdate(
             { _id: new ObjectId(id) },
             { $set: update },
             { returnDocument: 'after' }
@@ -188,7 +266,7 @@ export class DatabaseService {
 
     public async deleteDocument(id: string): Promise<boolean> {
         this.validateConnection();
-        const result = await this.collection.updateOne(
+        const result = await this.collections.documents.updateOne(
             { _id: new ObjectId(id) },
             { $set: { deleted: true } }
         );
@@ -197,7 +275,7 @@ export class DatabaseService {
 
     public async countDocuments(query: DocumentSearchQuery): Promise<number> {
         this.validateConnection();
-        return this.collection.countDocuments(this.buildSearchQuery(query));
+        return this.collections.documents.countDocuments(this.buildSearchQuery(query));
     }
 
     /**
@@ -207,7 +285,7 @@ export class DatabaseService {
      */
     public async getDocumentVersions(id: string): Promise<DocumentMetadata[]> {
         try {
-            const versions = await this.collection
+            const versions = await this.collections.documents
                 .find({ documentId: new ObjectId(id) })
                 .sort({ 'metadata.version': -1 })
                 .toArray();
@@ -222,57 +300,6 @@ export class DatabaseService {
     private validateConnection(): void {
         if (!this.db) {
             throw new Error('Database not connected');
-        }
-    }
-
-    public async disconnect(): Promise<void> {
-        try {
-            await this.client.close();
-            this.db = null;
-            this.logger.info('Database disconnected');
-        } catch (error) {
-            this.logger.error('Error disconnecting from database:', error);
-            throw error;
-        }
-    }
-
-    private async createIndexes(): Promise<void> {
-        await this.collection.createIndexes([
-            {
-                key: { clearance: 1 },
-                ...this.DB_CONFIG.INDEX_OPTIONS
-            },
-            {
-                key: { releasableTo: 1 },
-                ...this.DB_CONFIG.INDEX_OPTIONS
-            },
-            {
-                key: { coiTags: 1 },
-                ...this.DB_CONFIG.INDEX_OPTIONS
-            },
-            {
-                key: { 'metadata.createdAt': 1 },
-                ...this.DB_CONFIG.INDEX_OPTIONS
-            },
-            {
-                key: { deleted: 1 },
-                ...this.DB_CONFIG.INDEX_OPTIONS
-            }
-        ]);
-    }
-
-    private async validateCollections(): Promise<void> {
-        if (!this.db) {
-            throw new Error('Database not connected');
-        }
-        // Validate required collections exist
-        const collections = await this.db.listCollections().toArray();
-        const requiredCollections = ['documents', 'audit_logs', 'system_logs'];
-
-        for (const collection of requiredCollections) {
-            if (!collections.find(c => c.name === collection)) {
-                await this.db.createCollection(collection);
-            }
         }
     }
 

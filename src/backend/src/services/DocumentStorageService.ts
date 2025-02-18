@@ -9,10 +9,14 @@ import {
     DocumentMetadata,
     ValidationResult,
     AuthError,
-    ClearanceLevel
+    ClearanceLevel,
+    SearchResult,
+    DocumentSearchQuery,
+    UserAttributes
 } from '../types';
 import { config } from '../config/config';
 import * as crypto from 'crypto';
+import { SECURITY_CONSTANTS } from '../constants/security';
 
 /**
  * Service responsible for secure document storage and retrieval in the NATO system.
@@ -473,6 +477,54 @@ export class DocumentStorageService {
     private async deleteEncryptedContent(location: string): Promise<void> {
         // Implementation would depend on your storage backend
         // Could be file system, object storage, etc.
+    }
+
+    public async searchDocuments(
+        query: DocumentSearchQuery,
+        userAttributes: UserAttributes
+    ): Promise<SearchResult<NATODocument>> {
+        try {
+            const filter = this.buildSearchFilter(query, userAttributes);
+            const total = await this.collection.countDocuments(filter);
+            const items = await this.collection
+                .find(filter)
+                .skip((query.page - 1) * query.limit)
+                .limit(query.limit)
+                .toArray();
+
+            return {
+                items,
+                total,
+                page: query.page,
+                pages: Math.ceil(total / query.limit)
+            };
+        } catch (error) {
+            this.logger.error('Document search error:', error);
+            throw new Error('Failed to search documents');
+        }
+    }
+
+    private buildSearchFilter(query: DocumentSearchQuery, userAttributes: UserAttributes): any {
+        const filter: any = {};
+
+        if (query.title) {
+            filter.title = { $regex: query.title, $options: 'i' };
+        }
+
+        if (query.classification) {
+            filter.classification = query.classification;
+        }
+
+        if (query.coiTags?.length) {
+            filter.coiTags = { $in: query.coiTags };
+        }
+
+        // Ensure user can only see documents they have clearance for
+        filter.classification = {
+            $lte: SECURITY_CONSTANTS.CLEARANCE_LEVELS[userAttributes.clearance]
+        };
+
+        return filter;
     }
 }
 

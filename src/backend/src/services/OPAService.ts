@@ -108,7 +108,10 @@ export class OPAService {
 
         try {
             const response = await this.axios.post('/v1/data/nato/document/allow', { input });
-            return response.data.result;
+            return {
+                allow: response.data.result.allow === true,
+                reason: response.data.result.reason
+            };
         } catch (error) {
             this.logger.error('OPA evaluation failed', { error, input });
             return {

@@ -1,5 +1,5 @@
-import { IDocument } from '../models/Document';
-import logger from '../utils/logger';
+import { IDocument } from '../models/Document2';
+import logger from '../utils/logger2';
 
 export interface StorageServiceResponse {
     success: boolean;

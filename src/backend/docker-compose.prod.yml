@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - ./nginx/ssl:/etc/nginx/ssl
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - api
+    networks:
+      - dive25-net
+
+  api:
+    # ... existing api config ...
+    environment:
+      - NODE_ENV=production
+      - SSL_ENABLED=true
+      - SSL_CERT_PATH=/etc/letsencrypt/live/${DOMAIN}/fullchain.pem
+      - SSL_KEY_PATH=/etc/letsencrypt/live/${DOMAIN}/privkey.pem
+
+  # ... rest of services ... 

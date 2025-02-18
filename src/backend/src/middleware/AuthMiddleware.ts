@@ -11,15 +11,10 @@ import {
     AuthenticatedRequest,
     UserAttributes,
     ResourceAttributes,
-    ValidationResult
+    ValidationResult,
+    AuthError,
+    SECURITY_CONSTANTS
 } from '../types';
-
-export class AuthError extends Error {
-    constructor(message: string, public statusCode: number) {
-        super(message);
-        this.name = 'AuthError';
-    }
-}
 
 export class AuthMiddleware {
     private static instance: AuthMiddleware;
@@ -65,7 +60,7 @@ export class AuthMiddleware {
             }
 
             const decodedToken = await this.verifyToken(token);
-            const userAttributes = this.mapKeycloakAttributes(decodedToken);
+            const userAttributes = this.mapUserAttributes(decodedToken);
 
             // Validate COI access based on partner type
             const coiValid = this.coiValidation.validateCOIAccess(
@@ -162,23 +157,27 @@ export class AuthMiddleware {
         return Array.isArray(header) ? header : header.split(',').map(s => s.trim());
     }
 
-    private mapKeycloakAttributes(decodedToken: any): UserAttributes {
+    private mapUserAttributes(rawData: any): UserAttributes {
         return {
-            uniqueIdentifier: decodedToken.sub,
-            countryOfAffiliation: decodedToken.country,
-            clearance: decodedToken.clearance_level,
-            coiAccess: this.mapCOIAccess(decodedToken.coi_access || []),
-            caveats: decodedToken.caveats || [],
-            lacvCode: decodedToken.lacv_code,
-            metadata: {
-                lastLogin: new Date(),
-                federationId: decodedToken.federation_id
-            }
+            uniqueIdentifier: rawData.sub || rawData.uid,
+            countryOfAffiliation: rawData.country || rawData.countryCode,
+            clearance: this.validateClearanceLevel(rawData.clearance),
+            coiTags: this.validateCoiTags(rawData.coiTags),
+            caveats: rawData.caveats || [],
+            lacvCode: rawData.lacvCode,
+            organizationalAffiliation: rawData.org
         };
     }
 
-    private mapCOIAccess(coiData: any[]): COIAccess[] {
-        return coiData.map(coi => ({
+    private validateClearanceLevel(clearance: string): ClearanceLevel {
+        if (clearance in SECURITY_CONSTANTS.CLEARANCE_LEVELS) {
+            return clearance as ClearanceLevel;
+        }
+        throw new Error(`Invalid clearance level: ${clearance}`);
+    }
+
+    private validateCoiTags(coiTags: any[]): CoiTag[] {
+        return coiTags.map(coi => ({
             id: coi.id,
             name: coi.name,
             level: coi.level,
@@ -211,4 +210,5 @@ export class AuthMiddleware {
         }
         return AuthMiddleware.instance;
     }
+}
 }

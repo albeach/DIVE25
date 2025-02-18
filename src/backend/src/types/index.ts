@@ -5,33 +5,18 @@ const id = new ObjectId();
 
 // Fix SearchResult type
 export interface SearchResult<T> {
-    data: T[];
+    items: T[];
     total: number;
     page: number;
-    limit: number;
+    pages: number;
 }
 
 // Security-related types
-export type ClearanceLevel =
-    | 'UNCLASSIFIED'
-    | 'RESTRICTED'
-    | 'NATO CONFIDENTIAL'
-    | 'NATO SECRET'
-    | 'COSMIC TOP SECRET';
-
 export type ReleasabilityMarker =
     | 'NATO'
     | 'EU'
     | 'FVEY'
     | 'PARTNERX';
-
-export type CoiTag = 'OpAlpha' | 'OpBravo' | 'OpGamma' | 'MissionX' | 'MissionZ';
-
-export type LacvCode =
-    | 'LACV001'
-    | 'LACV002'
-    | 'LACV003'
-    | 'LACV004';
 
 // Add missing types for MongoDB
 export interface MongoDocument {
@@ -64,22 +49,17 @@ export interface COIAccess {
 
 export interface UserAttributes {
     uniqueIdentifier: string;
-    organization: string;
-    clearance: string;
-    coiAccess: COIAccess[];  // Array of COI objects with metadata
-    releasabilityAccess: string[];
-    metadata?: {
-        lastLogin?: Date;
-        accessLevel?: string;
-        partnerType?: string;
-        federationId?: string;
-    };
+    countryOfAffiliation: string;
+    clearance: ClearanceLevel;
+    coiTags: string[];
+    caveats: string[];
+    lacvCode?: string;
+    organizationalAffiliation?: string;
 }
 
 export interface AuthenticatedRequest extends Request {
-    userAttributes: UserAttributes;
-    startTime?: number;
-    document?: NATODocument;
+    document?: IDocument;
+    user: Express.User;  // Now TypeScript knows about the user property
 }
 
 export interface RequestWithFederation extends Request {
@@ -92,13 +72,13 @@ export interface RequestWithFederation extends Request {
 
 // Document-related interfaces
 export interface DocumentMetadata {
-    createdAt: Date;
-    createdBy: string;
-    lastModified: Date;
+    author: string;
     version: number;
-    mimeType: string;
-    lastModifiedBy?: string;
-    originalFileName?: string;
+    lastModifiedBy: string;
+    classification: ClearanceLevel;
+    releasableTo: string[];
+    coiTags?: CoiTag[];
+    lacvCode?: LacvCode;
 }
 
 export interface DocumentContent {
@@ -148,17 +128,15 @@ export interface DocumentVersionInfo {
 
 // Search and pagination interfaces
 export interface DocumentSearchQuery {
-    userAttributes?: UserAttributes;
-    clearance?: ClearanceLevel;
-    releasableTo?: ReleasabilityMarker[];
+    title?: string;
+    classification?: ClearanceLevel;
     coiTags?: CoiTag[];
-    lacvCode?: LacvCode;
     dateRange?: {
         start: Date;
         end: Date;
     };
-    keywords?: string;
-    maxClearance?: ClearanceLevel;
+    page?: number;
+    limit?: number;
 }
 
 export interface PaginationOptions {
@@ -341,23 +319,12 @@ export interface AuditLogDocument {
 export interface ResourceAttributes {
     path: string;
     method: string;
-    resourceType?: string;
-    classification?: string;
-    coi?: string[];
-    releasability?: string[];
+    classification: string;
+    releasableTo: string[];
+    coiTags?: string[];
+    lacvCode?: string;
 }
 
 export interface MetricLabels {
     [key: string]: string | number;
-}
-
-export interface ResourceAttributes {
-    path: string;
-    method: string;
-    resourceType?: string;
-    classification?: string;
-    clearance?: string; // Add this
-    releasableTo?: string[]; // Add this
-    coiTags?: string[];
-    lacvCode?: string;
 }

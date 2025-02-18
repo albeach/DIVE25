@@ -1,4 +1,5 @@
-import { Schema, model, Document as MongooseDocument } from 'mongoose';
+import
+import mongoose, { Schema, Document as MongoDocument } from 'mongoose';
 
 export enum Classification {
     UNCLASSIFIED = 'UNCLASSIFIED',

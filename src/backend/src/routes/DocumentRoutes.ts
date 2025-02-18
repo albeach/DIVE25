@@ -1,81 +1,85 @@
-import { Router, Response } from 'express';
+import { Router } from 'express';
+import { AuthenticatedRequest } from '../types';
+import { documentSchemas } from '../validators/documentSchemas';
+import { ValidateRequest } from '../middleware/ValidationMiddleware';
+import { DocumentController } from '../controllers/DocumentController';
 import { AuthMiddleware } from '../middleware/AuthMiddleware';
 import DocumentAccessMiddleware from '../middleware/DocumentAccess';
 import DocumentValidationMiddleware from '../middleware/DocumentValidation';
-import { DocumentController } from '../controllers/DocumentController';
 import { LoggerService } from '../services/LoggerService';
 import { MetricsService } from '../services/MetricsService';
-import {
-    AuthenticatedRequest,
-    NATODocument,
-    ApiResponse,
-} from '../types';
-import { ValidateRequest } from '../middleware/ValidationMiddleware';
-import { documentSchemas } from '../validators/documentSchemas';
+import { ApiResponse } from '../types';
 
 export class DocumentRoutes {
-    private static _instance: DocumentRoutes | null = null;
+    private static instance: DocumentRoutes;
     private readonly router: Router;
-    private readonly documentController: DocumentController;
+    private readonly controller: DocumentController;
+    private readonly access: DocumentAccessMiddleware;
+    private readonly validation: DocumentValidationMiddleware;
+    private readonly auth: AuthMiddleware;
     private readonly logger: LoggerService;
     private readonly metrics: MetricsService;
-    private readonly authMiddleware: AuthMiddleware;
+
+    public static getInstance(): DocumentRoutes {
+        if (!DocumentRoutes.instance) {
+            DocumentRoutes.instance = new DocumentRoutes();
+        }
+        return DocumentRoutes.instance;
+    }
 
     private constructor() {
         this.router = Router();
-        this.documentController = DocumentController.getInstance();
+        this.controller = DocumentController.getInstance();
+        this.access = DocumentAccessMiddleware.getInstance();
+        this.validation = DocumentValidationMiddleware.getInstance();
+        this.auth = AuthMiddleware.getInstance();
         this.logger = LoggerService.getInstance();
         this.metrics = MetricsService.getInstance();
-        this.authMiddleware = AuthMiddleware.getInstance();
         this.initializeRoutes();
     }
 
-    public static getInstance(): DocumentRoutes {
-        if (!DocumentRoutes._instance) {
-            DocumentRoutes._instance = new DocumentRoutes();
-        }
-        return DocumentRoutes._instance;
-    }
-
-    public getRouter(): Router {
-        return this.router;
-    }
-
     private initializeRoutes(): void {
-        this.router.use(this.authMiddleware.authenticate);
-        this.router.use(this.authMiddleware.extractUserAttributes);
-
-        this.router.get('/:id',
-            ValidateRequest(documentSchemas.getById),
-            DocumentAccessMiddleware.validateAccess,
-            this.wrapRoute(this.handleGetDocument.bind(this))
+        // Get document by ID
+        this.router.get(
+            '/:id',
+            this.auth.authenticate,
+            this.access.validateAccess,
+            this.controller.getDocument.bind(this.controller)
         );
 
-        this.router.post('/search',
-            ValidateRequest(documentSchemas.list),
-            this.wrapRoute(this.handleSearchDocuments.bind(this))
+        // Search documents
+        this.router.get(
+            '/',
+            this.auth.authenticate,
+            this.controller.searchDocuments.bind(this.controller)
         );
 
-        this.router.post('/',
+        // Create new document
+        this.router.post(
+            '/',
+            this.auth.authenticate,
             ValidateRequest(documentSchemas.create),
-            this.authMiddleware.requireClearance('NATO CONFIDENTIAL'),
-            DocumentValidationMiddleware.validateDocument,
-            this.wrapRoute(this.handleCreateDocument.bind(this))
+            this.validation.validateDocument,
+            this.access.validateAccess,
+            this.controller.createDocument.bind(this.controller)
         );
 
-        this.router.put('/:id',
+        // Update document
+        this.router.put(
+            '/:id',
+            this.auth.authenticate,
             ValidateRequest(documentSchemas.update),
-            this.authMiddleware.requireClearance('NATO CONFIDENTIAL'),
-            DocumentAccessMiddleware.validateAccess,
-            DocumentValidationMiddleware.validateDocument,
-            this.wrapRoute(this.handleUpdateDocument.bind(this))
+            this.validation.validateDocument,
+            this.access.validateAccess,
+            this.controller.updateDocument.bind(this.controller)
         );
 
-        this.router.delete('/:id',
-            ValidateRequest(documentSchemas.delete),
-            this.authMiddleware.requireClearance('NATO SECRET'),
-            DocumentAccessMiddleware.validateAccess,
-            this.wrapRoute(this.handleDeleteDocument.bind(this))
+        // Delete document
+        this.router.delete(
+            '/:id',
+            this.auth.authenticate,
+            this.access.validateAccess,
+            this.controller.deleteDocument.bind(this.controller)
         );
 
         this.router.post('/:id/versions',
@@ -89,118 +93,14 @@ export class DocumentRoutes {
         );
     }
 
-    private async handleGetDocument(req: AuthenticatedRequest, res: Response): Promise<void> {
-        const startTime = Date.now();
-        try {
-            await this.documentController.getDocument(req, res);
-
-            await this.metrics.recordHttpRequest(
-                req.method,
-                req.path,
-                200,
-                Date.now() - startTime
-            );
-        } catch (error) {
-            this.handleError(error, req, res);
-        }
-    }
-
-    private async handleSearchDocuments(req: AuthenticatedRequest, res: Response): Promise<void> {
-        const startTime = Date.now();
-        try {
-            await this.documentController.searchDocuments(req, res);
-
-            await this.metrics.recordHttpRequest(
-                req.method,
-                req.path,
-                200,
-                Date.now() - startTime
-            );
-        } catch (error) {
-            this.handleError(error, req, res);
-        }
-    }
-
-    private async handleCreateDocument(req: AuthenticatedRequest, res: Response): Promise<void> {
-        const startTime = Date.now();
-        try {
-            const document = await this.documentController.createDocument(
-                req.body,
-                req.userAttributes
-            );
-
-            await this.metrics.recordHttpRequest(
-                req.method,
-                req.path,
-                201,
-                Date.now() - startTime
-            );
-
-            const response: ApiResponse<NATODocument> = {
-                success: true,
-                data: document,
-                metadata: {
-                    timestamp: new Date(),
-                    requestId: req.headers['x-request-id'] as string
-                }
-            };
-
-            res.status(201).json(response);
-        } catch (error) {
-            this.handleError(error, req, res);
-        }
-    }
-
-    private async handleUpdateDocument(req: AuthenticatedRequest, res: Response): Promise<void> {
-        const startTime = Date.now();
-        try {
-            await this.documentController.updateDocument(req, res);
-
-            await this.metrics.recordHttpRequest(
-                req.method,
-                req.path,
-                200,
-                Date.now() - startTime
-            );
-        } catch (error) {
-            this.handleError(error, req, res);
-        }
-    }
-
-    private async handleDeleteDocument(req: AuthenticatedRequest, res: Response): Promise<void> {
-        const startTime = Date.now();
-        try {
-            const deleted = await this.documentController.deleteDocument(
-                req.params.id,
-                req.userAttributes
-            );
-
-            await this.metrics.recordHttpRequest(
-                req.method,
-                req.path,
-                deleted ? 200 : 404,
-                Date.now() - startTime
-            );
-
-            const response: ApiResponse<{ deleted: boolean }> = {
-                success: deleted,
-                data: { deleted },
-                metadata: {
-                    timestamp: new Date(),
-                    requestId: req.headers['x-request-id'] as string
-                }
-            };
-
-            res.status(deleted ? 200 : 404).json(response);
-        } catch (error) {
-            this.handleError(error, req, res);
-        }
+    public getRouter(): Router {
+        return this.router;
     }
 
     private async handleCreateVersion(req: AuthenticatedRequest, res: Response): Promise<void> {
         const startTime = Date.now();
         try {
-            await this.documentController.createVersion(req, res);
+            await this.controller.createVersion(req, res);
 
             await this.metrics.recordHttpRequest(
                 req.method,
@@ -216,7 +116,7 @@ export class DocumentRoutes {
     private async handleListVersions(req: AuthenticatedRequest, res: Response): Promise<void> {
         const startTime = Date.now();
         try {
-            await this.documentController.listVersions(req, res);
+            await this.controller.listVersions(req, res);
 
             await this.metrics.recordHttpRequest(
                 req.method,
@@ -274,5 +174,4 @@ export class DocumentRoutes {
     }
 }
 
-export const documentRoutes = DocumentRoutes.getInstance();
-export default DocumentRoutes;
+export default DocumentRoutes.getInstance();

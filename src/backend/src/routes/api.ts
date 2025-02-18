@@ -1,40 +1,81 @@
-import express from 'express';
-import { DocumentController, PartnerController } from '../controllers';
+import express, { Router } from 'express';
+import { DocumentRoutes } from './DocumentRoutes';
+import { HealthRoutes } from './HealthRoutes';
 import { AuthMiddleware } from '../middleware/AuthMiddleware';
+import { RequestMiddleware } from '../middleware/RequestMiddleware';
+import { RateLimiter } from '../middleware/RateLimiter';
+import { ErrorHandler } from '../middleware/ErrorHandler';
+import { LoggerService } from '../services/LoggerService';
+import { MetricsService } from '../services/MetricsService';
 
-const auth = AuthMiddleware.getInstance().authenticate;
-const router = express.Router();
+export class APIRouter {
+    private static instance: APIRouter;
+    private readonly router: Router;
+    private readonly logger: LoggerService;
+    private readonly metrics: MetricsService;
 
-// Partner endpoints
-router.post('/partners/register', auth, async (req, res) => {
-    const controller = new PartnerController();
-    const partner = await controller.registerPartner(req.body);
-    res.status(201).json(partner);
-});
+    private constructor() {
+        this.router = express.Router();
+        this.logger = LoggerService.getInstance();
+        this.metrics = MetricsService.getInstance();
+        this.initializeMiddleware();
+        this.initializeRoutes();
+        this.initializeErrorHandling();
+    }
 
-router.get('/partners', auth, async (req, res) => {
-    const controller = new PartnerController();
-    const partners = await controller.getPartners();
-    res.json(partners);
-});
+    public static getInstance(): APIRouter {
+        if (!APIRouter.instance) {
+            APIRouter.instance = new APIRouter();
+        }
+        return APIRouter.instance;
+    }
 
-// Document endpoints
-router.post('/documents', auth, async (req, res) => {
-    const controller = new DocumentController();
-    const document = await controller.createDocument(req.body);
-    res.status(201).json(document);
-});
+    private initializeMiddleware(): void {
+        // Request tracking and security headers
+        this.router.use(RequestMiddleware.getInstance().trackRequest);
+        this.router.use(RequestMiddleware.getInstance().securityHeaders);
 
-router.get('/documents', auth, async (req, res) => {
-    const controller = new DocumentController();
-    const documents = await controller.getDocuments(req.query);
-    res.json(documents);
-});
+        // Rate limiting
+        this.router.use(RateLimiter.getInstance().limit);
 
-router.get('/documents/:id', auth, async (req, res) => {
-    const controller = new DocumentController();
-    const document = await controller.getDocument(req.params.id);
-    res.json(document);
-});
+        // Authentication - skip for health checks
+        this.router.use(/^(?!\/health).*$/, AuthMiddleware.getInstance().authenticate);
+    }
 
-export default router; 
+    private initializeRoutes(): void {
+        // Health check routes
+        this.router.use('/health', HealthRoutes.getInstance().getRouter());
+
+        // Document routes - protected by auth
+        this.router.use('/documents', DocumentRoutes.getInstance().getRouter());
+
+        // Add metrics endpoint for Prometheus
+        this.router.get('/metrics', async (req, res) => {
+            try {
+                const metrics = await this.metrics.getMetrics();
+                res.set('Content-Type', this.metrics.contentType);
+                res.send(metrics);
+            } catch (error) {
+                this.logger.error('Failed to get metrics:', error);
+                res.status(500).send('Failed to get metrics');
+            }
+        });
+    }
+
+    private initializeErrorHandling(): void {
+        const errorHandler = ErrorHandler.getInstance();
+
+        // Handle 404s
+        this.router.use(errorHandler.handleNotFound);
+
+        // Handle all other errors
+        this.router.use(errorHandler.handleError);
+    }
+
+    public getRouter(): Router {
+        return this.router;
+    }
+}
+
+// Update app.ts to use this router
+export default APIRouter.getInstance().getRouter(); 
