@@ -2,8 +2,10 @@
   "name": "dive25-backend",
   "version": "1.0.0",
   "scripts": {
-    "build": "tsc",
-    "clean": "rm -rf dist",
+    "clean": "rimraf **/node_modules **/dist",
+    "prebuild": "npm run validate-build-location",
+    "validate-build-location": "node scripts/validate-build-location.js",
+    "build": "cd src/backend && tsc",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts"
   },

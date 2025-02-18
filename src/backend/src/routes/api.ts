@@ -1,10 +1,8 @@
 import express from 'express';
-import { auth } from '../middleware/auth';
-import {
-    DocumentController,
-    PartnerController
-} from '../controllers';
+import { DocumentController, PartnerController } from '../controllers';
+import { AuthMiddleware } from '../middleware/AuthMiddleware';
 
+const auth = AuthMiddleware.getInstance().authenticate;
 const router = express.Router();
 
 // Partner endpoints

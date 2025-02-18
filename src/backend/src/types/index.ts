@@ -350,3 +350,14 @@ export interface ResourceAttributes {
 export interface MetricLabels {
     [key: string]: string | number;
 }
+
+export interface ResourceAttributes {
+    path: string;
+    method: string;
+    resourceType?: string;
+    classification?: string;
+    clearance?: string; // Add this
+    releasableTo?: string[]; // Add this
+    coiTags?: string[];
+    lacvCode?: string;
+}

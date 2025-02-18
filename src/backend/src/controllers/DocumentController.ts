@@ -1,4 +1,4 @@
-import { Response, Response, NextFunction } from 'express';
+import { Request, Response, NextFunction } from 'express';
 // At the top of files using MongoDB types
 import { prisma } from '../db';
 import { Db as MongoDb, Collection, Document, ObjectId } from 'mongodb';
@@ -63,9 +63,11 @@ export class DocumentController {
             }
 
             // Validate security access
-            const accessResult = await this.opa.evaluateAccess(
-                req.userAttributes,
+            const accessResult = await this.OPAService.evaluateAccess(
+                userAttributes,
                 {
+                    path: req.path,
+                    method: req.method,
                     clearance: document.clearance,
                     releasableTo: document.releasableTo,
                     coiTags: document.coiTags,

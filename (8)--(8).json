@@ -1,0 +1,6 @@
+{
+  "scripts": {
+    "nuke": "rimraf **/node_modules **/dist && npm cache clean --force && npm install",
+    "where-am-i": "echo Current directory: $(pwd)"
+  }
+}
