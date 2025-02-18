@@ -150,3 +150,63 @@ Requirements:
 - Node.js 18+
 - 2GB RAM minimum
 - Ubuntu 20.04+ recommended 
+
+curl -sSL https://dive25.com/install.sh | bash -s -- --domain your-domain.com --email your-email@domain.com 
+
+# Create and enter directory
+mkdir dive25
+cd dive25
+
+# Clone the repository directly (more reliable than tar.gz)
+git clone https://github.com/yourusername/dive25.git .
+
+# Make scripts executable
+chmod +x backend/start.sh
+chmod +x install.sh
+
+# Check if all services are running
+docker-compose ps
+
+# Check logs for any errors
+docker-compose logs -f
+
+# Test the API endpoint
+curl https://dive25.com/api/health 
+
+# Check system status
+docker-compose ps
+
+# View real-time logs
+docker-compose logs -f
+
+# Check SSL certificate
+curl -vI https://dive25.com 
+
+# Copy example env file
+cp backend/.env.example backend/.env.production
+
+# Edit the environment file with your values
+nano backend/.env.production 
+
+# Run the start script
+./backend/start.sh production 
+
+# 1. Check Docker status
+docker info
+
+# 2. Pull required images
+docker-compose pull
+
+# 3. Build the application
+docker-compose build
+
+# 4. Start services
+docker-compose up -d
+
+# 5. Check status
+docker-compose ps 
+
+docker --version
+docker-compose --version 
+
+# Then follow the interactive prompts 
