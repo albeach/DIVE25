@@ -318,14 +318,14 @@ npx audit-ci --low
 ## Monitoring and Logging
 ### Health Checks
 ```bash
-kubectl exec -n dive25 pingfederate-0 -- health-check.sh
+kubectl exec -n dive25 -- health-check.sh
 curl https://dive25.com/health
 ```
 
 ### Log Collection
 ```bash
 kubectl logs -n dive25 -l app=dive25-api --tail=1000
-kubectl logs -n dive25 -l app=pingfederate --tail=1000
+[TBD] - replaced with Prometheus and Grafana
 ```
 
 ### Prometheus and Grafana

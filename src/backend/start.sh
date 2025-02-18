@@ -209,4 +209,54 @@ docker-compose ps
 docker --version
 docker-compose --version 
 
-# Then follow the interactive prompts 
+# Add this function after the existing functions
+load_ssl_certificates() {
+    local env_type=$1
+    local cert_dir="/certificates/prod"
+    local nginx_dir="/etc/nginx/certs"
+
+    if [ "$env_type" = "staging" ] && [ -d "$cert_dir" ]; then
+        echo "Loading pre-existing SSL certificates from ${cert_dir}..."
+        
+        # Create nginx certs directory if it doesn't exist
+        mkdir -p $nginx_dir
+
+        # Check for required certificate files
+        if [ -f "${cert_dir}/fullchain.pem" ] && [ -f "${cert_dir}/privkey.pem" ]; then
+            # Copy certificates to nginx directory
+            cp "${cert_dir}/fullchain.pem" "${nginx_dir}/fullchain.pem"
+            cp "${cert_dir}/privkey.pem" "${nginx_dir}/privkey.pem"
+            
+            # Set proper permissions
+            chmod 644 "${nginx_dir}/fullchain.pem"
+            chmod 600 "${nginx_dir}/privkey.pem"
+            
+            echo -e "${GREEN}SSL certificates loaded successfully${NC}"
+            return 0
+        else
+            echo -e "${YELLOW}Warning: Required certificate files not found in ${cert_dir}${NC}"
+            echo "Falling back to self-signed certificates..."
+            return 1
+        fi
+    fi
+    return 1
+}
+
+# Modify the case statement in the main script
+case $choice in
+    2) # Staging
+        ENV="staging"
+        create_env_file "staging"
+        
+        # Try to load existing certificates
+        if load_ssl_certificates "staging"; then
+            echo "Using production SSL certificates for staging"
+        else
+            echo "Generating self-signed certificates for staging"
+            # Generate self-signed cert logic here
+        fi
+        
+        docker-compose -f docker-compose.staging.yml up -d
+        load_test_data
+        ;;
+esac 
