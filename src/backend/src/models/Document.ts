@@ -1,93 +1,113 @@
 // src/models/Document.ts
-import mongoose, { Schema, Document as MongoDocument } from 'mongoose';
+import { ObjectId } from 'mongodb';
 
-export interface IDocument extends MongoDocument {
-    title: string;
-    description?: string;
-    classification: string;
-    releasableTo: string[];
-    coiTags: string[];
-    lacvCode?: string;
-    metadata: {
-        createdBy: string;
-        createdAt: Date;
-        lastModifiedBy: string;
-        lastModifiedAt: Date;
-        version: number;
-        checksum: string;
-        mimeType: string;
-        size: number;
-    };
-    storageLocation: {
-        bucket: string;
-        key: string;
-    };
-    status: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
+export const ValidClearanceLevels = [
+    'UNCLASSIFIED',
+    'RESTRICTED',
+    'NATO CONFIDENTIAL',
+    'NATO SECRET',
+    'COSMIC TOP SECRET'
+] as const;
+
+export const ValidReleasabilityMarkers = [
+    'NATO',
+    'EU',
+    'FVEY',
+    'PARTNERX'
+] as const;
+
+export const ValidCoiTags = [
+    'OpAlpha',
+    'OpBravo',
+    'OpGamma',
+    'MissionX',
+    'MissionZ'
+] as const;
+
+export const ValidLacvCodes = [
+    'LACV001',
+    'LACV002',
+    'LACV003',
+    'LACV004'
+] as const;
+
+export type ClearanceLevel = typeof ValidClearanceLevels[number];
+export type ReleasabilityMarker = typeof ValidReleasabilityMarkers[number];
+export type CoiTag = typeof ValidCoiTags[number];
+export type LacvCode = typeof ValidLacvCodes[number];
+
+export interface DocumentMetadata {
+    createdAt: Date;
+    createdBy: string;
+    lastModified: Date;
+    version: number;
+    lastModifiedBy?: string;
 }
 
-const DocumentSchema = new Schema<IDocument>({
-    title: {
-        type: String,
-        required: true,
-        index: true
-    },
-    description: {
-        type: String
-    },
-    classification: {
-        type: String,
-        required: true,
-        enum: ['UNCLASSIFIED', 'RESTRICTED', 'CONFIDENTIAL', 'SECRET', 'TOP SECRET'],
-        index: true
-    },
-    releasableTo: [{
-        type: String,
-        required: true,
-        enum: ['NATO', 'FVEY', 'EU', 'PARTNERX']
-    }],
-    coiTags: [{
-        type: String,
-        validate: {
-            validator: function (v: string) {
-                return ['OpAlpha', 'OpBravo', 'OpGamma', 'MissionX', 'MissionZ'].includes(v);
-            },
-            message: (props: any) => `${props.value} is not a valid COI tag`
-        }
-    }],
-    lacvCode: {
-        type: String,
-        sparse: true
-    },
-    metadata: {
-        createdBy: { type: String, required: true },
-        createdAt: { type: Date, default: Date.now },
-        lastModifiedBy: { type: String, required: true },
-        lastModifiedAt: { type: Date, default: Date.now },
-        version: { type: Number, default: 1 },
-        checksum: { type: String, required: true },
-        mimeType: { type: String, required: true },
-        size: { type: Number, required: true }
-    },
-    storageLocation: {
-        bucket: { type: String, required: true },
-        key: { type: String, required: true }
-    },
-    status: {
-        type: String,
-        enum: ['DRAFT', 'PUBLISHED', 'ARCHIVED'],
-        default: 'DRAFT',
-        required: true,
-        index: true
-    }
-}, {
-    timestamps: true,
-    collection: 'documents'
-});
+export interface DocumentContent {
+    location: string;
+    hash: string;
+    mimeType: string;
+    size?: number;
+}
 
-// Indexes for common queries
-DocumentSchema.index({ classification: 1, releasableTo: 1 });
-DocumentSchema.index({ coiTags: 1 });
-DocumentSchema.index({ 'metadata.createdBy': 1 });
-DocumentSchema.index({ status: 1, classification: 1 });
+export interface NATODocument {
+    _id?: ObjectId;
+    title: string;
+    clearance: ClearanceLevel;
+    releasableTo: ReleasabilityMarker[];
+    coiTags?: CoiTag[];
+    lacvCode?: LacvCode;
+    metadata: DocumentMetadata;
+    content: DocumentContent;
+}
 
-export const Document = mongoose.model<IDocument>('Document', DocumentSchema);
+export interface NewDocument extends Omit<NATODocument, '_id'> {
+    metadata: DocumentMetadata;
+    content: DocumentContent;
+}
+
+export interface DocumentUpdate {
+    title?: string;
+    clearance?: ClearanceLevel;
+    releasableTo?: ReleasabilityMarker[];
+    coiTags?: CoiTag[];
+    lacvCode?: LacvCode;
+    content?: Partial<DocumentContent>;
+}
+
+export interface DocumentSearchOptions {
+    clearance?: ClearanceLevel;
+    releasableTo?: ReleasabilityMarker[];
+    coiTags?: CoiTag[];
+    lacvCode?: LacvCode;
+    dateRange?: {
+        start: Date;
+        end: Date;
+    };
+    page?: number;
+    limit?: number;
+    sort?: {
+        field: keyof NATODocument;
+        order: 'asc' | 'desc';
+    };
+}
+
+export interface DocumentAccessControl {
+    userClearance: ClearanceLevel;
+    userCoiTags?: CoiTag[];
+    userLacvCode?: LacvCode;
+    documentClearance: ClearanceLevel;
+    documentCoiTags?: CoiTag[];
+    documentLacvCode?: LacvCode;
+}
+
+export const clearanceLevels: { [key in ClearanceLevel]: number } = {
+    'UNCLASSIFIED': 0,
+    'RESTRICTED': 1,
+    'NATO CONFIDENTIAL': 2,
+    'NATO SECRET': 3,
+    'COSMIC TOP SECRET': 4
+};
+
+export type Classification = ClearanceLevel;

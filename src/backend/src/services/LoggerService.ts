@@ -6,13 +6,8 @@ import { config } from '../config/config';
 import {
     UserAttributes,
     AuditEvent,
-    ClearanceLevel,
-    ResourceAttributes,
-    OPAResult,
-    ValidationResult,
-    NATODocument
+    ClearanceLevel
 } from '../types';
-import { Request } from 'express';
 
 export class LoggerService {
     private static instance: LoggerService;
@@ -34,33 +29,87 @@ export class LoggerService {
 
     private constructor() {
         this.logger = winston.createLogger({
-            level: 'info',
+            level: config.env === 'production' ? 'info' : 'debug',
             format: winston.format.combine(
                 winston.format.timestamp(),
-                winston.format.json()
+                winston.format.json(),
+                winston.format.errors({ stack: true }),
+                winston.format.metadata()
             ),
-            transports: [
-                new winston.transports.File({ filename: 'error.log', level: 'error' }),
-                new winston.transports.File({ filename: 'combined.log' })
-            ]
+            defaultMeta: { service: 'dive25' },
+            transports: this.initializeTransports()
         });
 
         this.auditLogger = winston.createLogger({
-            level: 'info',
             format: winston.format.combine(
                 winston.format.timestamp(),
                 winston.format.json()
             ),
-            transports: [
-                new winston.transports.File({ filename: 'audit.log' })
-            ]
+            transports: this.initializeAuditTransports()
         });
+    }
 
-        if (process.env.NODE_ENV !== 'production') {
-            this.logger.add(new winston.transports.Console({
-                format: winston.format.simple()
-            }));
+    private initializeTransports(): winston.transport[] {
+        const transports: winston.transport[] = [
+            new winston.transports.Console({
+                format: winston.format.combine(
+                    winston.format.colorize(),
+                    winston.format.simple()
+                )
+            }),
+
+            new winston.transports.File({
+                filename: 'logs/error.log',
+                level: 'error',
+                maxsize: 5242880, // 5MB
+                maxFiles: 5,
+                format: winston.format.combine(
+                    winston.format.uncolorize(),
+                    winston.format.json()
+                )
+            }),
+
+            new MongoDB({
+                db: config.mongo.uri,
+                collection: 'system_logs',
+                level: 'info',
+                options: {
+                    useUnifiedTopology: true
+                },
+                metaKey: 'metadata'
+            }) as unknown as winston.transport
+        ];
+
+        if (config.env === 'production') {
+            transports.push(
+                new winston.transports.File({
+                    filename: 'logs/combined.log',
+                    maxsize: 10485760, // 10MB
+                    maxFiles: 5
+                })
+            );
         }
+
+        return transports;
+    }
+
+    private initializeAuditTransports(): winston.transport[] {
+        return [
+            new winston.transports.File({
+                filename: 'logs/audit.log',
+                maxsize: 10485760, // 10MB
+                maxFiles: 10
+            }),
+
+            new MongoDB({
+                db: config.mongo.uri,
+                collection: 'audit_logs',
+                options: {
+                    useUnifiedTopology: true
+                },
+                metaKey: 'metadata'
+            }) as unknown as winston.transport
+        ];
     }
 
     public static getInstance(): LoggerService {
@@ -71,47 +120,22 @@ export class LoggerService {
     }
 
     public info(message: string, meta?: any): void {
-        this.logger.info(message, meta);
+        this.logger.info(message, { metadata: meta });
     }
 
-    public error(message: string, meta?: any): void {
-        this.logger.error(message, meta);
+    public error(message: string, error?: any): void {
+        this.logger.error(message, {
+            metadata: error,
+            stack: error?.stack
+        });
     }
 
     public warn(message: string, meta?: any): void {
-        this.logger.warn(message, meta);
+        this.logger.warn(message, { metadata: meta });
     }
 
     public debug(message: string, meta?: any): void {
-        this.logger.debug(message, meta);
-    }
-
-    public auditAccess(
-        user: UserAttributes,
-        resource: string,
-        action: string,
-        success: boolean,
-        details?: Record<string, any>
-    ): void {
-        this.auditLogger.info('Access Audit', {
-            user: user.uniqueIdentifier,
-            resource,
-            action,
-            success,
-            details,
-            timestamp: new Date().toISOString()
-        });
-    }
-
-    public auditError(req: Request, error: Error, meta?: any): void {
-        this.auditLogger.error('Error Audit', {
-            path: req.path,
-            method: req.method,
-            error: error.message,
-            stack: error.stack,
-            meta,
-            timestamp: new Date().toISOString()
-        });
+        this.logger.debug(message, { metadata: meta });
     }
 
     public async auditSecurityEvent(

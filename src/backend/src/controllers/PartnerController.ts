@@ -10,11 +10,6 @@ import { LoggerService } from '../services/LoggerService';
 import { AuthenticatedRequest, AuthError } from '../types';
 import { SAML2Client } from '../services/SAML2Client';
 import { FederationMonitoringService } from '../services/FederationMonitoringService';
-import { PartnerDomainService } from '../services/partnerDomainService';
-import { FederationAuthService } from '../services/federationAuthService';
-import { KeycloakFederationService } from '../services/keycloakFederationService';
-import { prisma } from '../db';
-import { Partner, PartnerStatus } from '@prisma/client';
 
 export class PartnerController {
     private static instance: PartnerController;
@@ -25,9 +20,6 @@ export class PartnerController {
     private logger: LoggerService;
     private samlClient: SAML2Client;
     private monitoringService: FederationMonitoringService;
-    private partnerDomainService: PartnerDomainService;
-    private federationAuth: FederationAuthService;
-    private keycloakFederation: KeycloakFederationService;
 
     private constructor() {
         this.federationService = FederationPartnerService.getInstance();
@@ -37,9 +29,6 @@ export class PartnerController {
         this.logger = LoggerService.getInstance();
         this.samlClient = SAML2Client.getInstance();
         this.monitoringService = FederationMonitoringService.getInstance();
-        this.partnerDomainService = new PartnerDomainService();
-        this.federationAuth = new FederationAuthService();
-        this.keycloakFederation = new KeycloakFederationService();
     }
 
     public static getInstance(): PartnerController {
@@ -381,67 +370,6 @@ export class PartnerController {
                 throw error;
             }
         }
-    }
-
-    async approvePartner(partnerId: string): Promise<Partner> {
-        const partner = await prisma.partner.update({
-            where: { id: partnerId },
-            data: { status: 'ACTIVE' }
-        });
-
-        // Set up partner subdomain
-        await this.partnerDomainService.setupPartnerDomain(partner);
-
-        return partner;
-    }
-
-    async registerPartner(data: {
-        name: string;
-        country: string;
-        clearanceLevel: string;
-        authorizedCOIs: string[];
-        federationMetadata: any;
-    }): Promise<Partner> {
-        // Create partner record
-        const partner = await prisma.partner.create({
-            data: {
-                name: data.name,
-                country: data.country,
-                clearanceLevel: data.clearanceLevel,
-                authorizedCOIs: data.authorizedCOIs,
-                status: PartnerStatus.PENDING
-            }
-        });
-
-        // Set up federation
-        await this.federationAuth.setupPartnerFederation(
-            partner,
-            data.federationMetadata
-        );
-
-        // Configure Keycloak
-        await this.keycloakFederation.createIdpConfiguration(
-            partner,
-            data.federationMetadata
-        );
-
-        // Activate partner
-        return this.activatePartner(partner.id);
-    }
-
-    async activatePartner(partnerId: string): Promise<Partner> {
-        return prisma.partner.update({
-            where: { id: partnerId },
-            data: { status: PartnerStatus.ACTIVE }
-        });
-    }
-
-    async getPartners(): Promise<Partner[]> {
-        return prisma.partner.findMany({
-            include: {
-                federation: true
-            }
-        });
     }
 }
 

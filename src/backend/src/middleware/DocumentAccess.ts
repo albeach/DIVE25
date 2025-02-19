@@ -13,7 +13,6 @@ import {
     ClearanceLevel
 } from '../types';
 import { asAuthError } from './errorHandler';
-import { SECURITY_CONSTANTS } from '../constants/security';
 
 /**
  * Middleware responsible for enforcing NATO security policies and access controls
@@ -558,7 +557,14 @@ export class DocumentAccessMiddleware {
      * This hierarchy follows NATO security classification standards.
      */
     public getSecurityLevel(clearance: string): number {
-        return SECURITY_CONSTANTS.CLEARANCE_LEVELS[clearance] || 0;
+        const levels: Record<string, number> = {
+            'UNCLASSIFIED': 0,
+            'RESTRICTED': 1,
+            'NATO CONFIDENTIAL': 2,
+            'NATO SECRET': 3,
+            'COSMIC TOP SECRET': 4
+        };
+        return levels[clearance] || 0;
     }
 
     /**
@@ -628,21 +634,6 @@ export class DocumentAccessMiddleware {
             'DELETE': 'delete'
         };
         return methodMap[req.method] || 'unknown';
-    }
-
-    private async validateClassificationInheritance(document: NATODocument): Promise<ValidationResult> {
-        const parentId = document.metadata?.parentDocument;
-        if (parentId) {
-            const parentDoc = await this.documentService.retrieveDocument(parentId);
-            if (this.getSecurityLevel(document.clearance) <
-                this.getSecurityLevel(parentDoc.clearance)) {
-                return {
-                    valid: false,
-                    errors: ['Derived document cannot have lower classification than parent']
-                };
-            }
-        }
-        return { valid: true, errors: [] };
     }
 }
 

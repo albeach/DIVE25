@@ -5,18 +5,33 @@ const id = new ObjectId();
 
 // Fix SearchResult type
 export interface SearchResult<T> {
-    items: T[];
+    data: T[];
     total: number;
     page: number;
-    pages: number;
+    limit: number;
 }
 
 // Security-related types
+export type ClearanceLevel =
+    | 'UNCLASSIFIED'
+    | 'RESTRICTED'
+    | 'NATO CONFIDENTIAL'
+    | 'NATO SECRET'
+    | 'COSMIC TOP SECRET';
+
 export type ReleasabilityMarker =
     | 'NATO'
     | 'EU'
     | 'FVEY'
     | 'PARTNERX';
+
+export type CoiTag = 'OpAlpha' | 'OpBravo' | 'OpGamma' | 'MissionX' | 'MissionZ';
+
+export type LacvCode =
+    | 'LACV001'
+    | 'LACV002'
+    | 'LACV003'
+    | 'LACV004';
 
 // Add missing types for MongoDB
 export interface MongoDocument {
@@ -39,27 +54,19 @@ export interface DocumentOperationResult<T> {
 }
 
 // User-related interfaces
-export interface COIAccess {
-    id: string;
-    name: string;
-    level: string;
-    validFrom: Date;
-    validTo?: Date;
-}
-
 export interface UserAttributes {
     uniqueIdentifier: string;
     countryOfAffiliation: string;
     clearance: ClearanceLevel;
-    coiTags: string[];
-    caveats: string[];
-    lacvCode?: string;
+    coiTags?: CoiTag[];
+    lacvCode?: LacvCode;
     organizationalAffiliation?: string;
 }
 
 export interface AuthenticatedRequest extends Request {
-    document?: IDocument;
-    user: Express.User;  // Now TypeScript knows about the user property
+    userAttributes: UserAttributes;
+    startTime?: number;
+    document?: NATODocument;
 }
 
 export interface RequestWithFederation extends Request {
@@ -72,13 +79,13 @@ export interface RequestWithFederation extends Request {
 
 // Document-related interfaces
 export interface DocumentMetadata {
-    author: string;
+    createdAt: Date;
+    createdBy: string;
+    lastModified: Date;
     version: number;
-    lastModifiedBy: string;
-    classification: ClearanceLevel;
-    releasableTo: string[];
-    coiTags?: CoiTag[];
-    lacvCode?: LacvCode;
+    mimeType: string;
+    lastModifiedBy?: string;
+    originalFileName?: string;
 }
 
 export interface DocumentContent {
@@ -128,15 +135,17 @@ export interface DocumentVersionInfo {
 
 // Search and pagination interfaces
 export interface DocumentSearchQuery {
-    title?: string;
-    classification?: ClearanceLevel;
+    userAttributes?: UserAttributes;
+    clearance?: ClearanceLevel;
+    releasableTo?: ReleasabilityMarker[];
     coiTags?: CoiTag[];
+    lacvCode?: LacvCode;
     dateRange?: {
         start: Date;
         end: Date;
     };
-    page?: number;
-    limit?: number;
+    keywords?: string;
+    maxClearance?: ClearanceLevel;
 }
 
 export interface PaginationOptions {
@@ -205,40 +214,7 @@ export interface ApiResponse<T> {
     };
 }
 
-// Consolidate duplicate interfaces into a single location
-export interface OPAResult {
-    allow: boolean;
-    reason?: string;
-}
-
-export interface ExistingAlertService {
-    send(alert: {
-        level: string;
-        title: string;
-        message: string;
-        metadata: Record<string, any>;
-        source: string;
-        timestamp: Date;
-        tags: string[];
-    }): Promise<void>;
-}
-
-export interface HealthCheckResult {
-    status: 'healthy' | 'degraded' | 'down';
-    responseTime: number;
-    lastChecked: Date;
-    error?: string;
-}
-
-export interface PartnerHealth {
-    partnerId: string;
-    status: 'healthy' | 'degraded' | 'down';
-    responseTime: number;
-    errorCount: number;
-    successRate: number;
-    lastChecked: Date;
-}
-
+// Update ValidationResult type
 export interface ValidationResult {
     valid: boolean;
     errors: string[];
@@ -317,14 +293,13 @@ export interface AuditLogDocument {
 }
 
 export interface ResourceAttributes {
-    path: string;
-    method: string;
-    classification: string;
-    releasableTo: string[];
-    coiTags?: string[];
-    lacvCode?: string;
+    clearance: ClearanceLevel;
+    releasableTo?: ReleasabilityMarker[];
+    coiTags?: CoiTag[];
+    lacvCode?: LacvCode;
 }
 
-export interface MetricLabels {
-    [key: string]: string | number;
+export interface OPAResult {
+    allow: boolean;
+    reason?: string;
 }

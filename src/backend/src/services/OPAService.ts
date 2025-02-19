@@ -13,23 +13,14 @@ import {
     ClearanceLevel
 } from '../types';
 
-interface OPAInput {
-    user: {
-        uniqueIdentifier: string;
-        countryOfAffiliation: string;
-        clearance: string;
-        coiTags: string[];
-        caveats: string[];
-        lacvCode?: string;
-    };
-    resource: {
-        path: string;
-        method: string;
-        classification: string;
-        releasableTo: string[];
-        coiTags?: string[];
-        lacvCode?: string;
-    };
+export interface OPAService {
+    evaluateAccess(user: UserAttributes, resource: ResourceAttributes, action?: string): Promise<OPAResult>;
+    validateAttributes(attributes: UserAttributes): Promise<ValidationResult>;
+    evaluateClearanceAccess(userClearance: ClearanceLevel, requiredClearance: ClearanceLevel): Promise<OPAResult>;
+    evaluateUpdateAccess(userAttributes: UserAttributes, document: NATODocument): Promise<OPAResult>;
+    evaluateClearanceModification(userAttributes: UserAttributes, from: ClearanceLevel, to: ClearanceLevel): Promise<OPAResult>;
+    evaluateReleasabilityModification(userAttributes: UserAttributes, marker: string): Promise<OPAResult>;
+    evaluateCoiModification(userAttributes: UserAttributes, changes: any): Promise<OPAResult>;
 }
 
 export class OPAService {
@@ -37,7 +28,6 @@ export class OPAService {
     private readonly axios: AxiosInstance;
     private readonly logger: LoggerService;
     private readonly metrics: MetricsService;
-    private readonly baseUrl: string;
 
     private readonly CACHE_CONFIG = {
         POLICY_TTL: 300, // 5 minutes
@@ -56,10 +46,9 @@ export class OPAService {
     private constructor() {
         this.logger = LoggerService.getInstance();
         this.metrics = MetricsService.getInstance();
-        this.baseUrl = config.opa.url;
 
         this.axios = axios.create({
-            baseURL: this.baseUrl,
+            baseURL: config.opa.url,
             timeout: this.CACHE_CONFIG.TIMEOUT,
             headers: {
                 'Content-Type': 'application/json'
@@ -85,86 +74,43 @@ export class OPAService {
 
     public async evaluateAccess(
         user: UserAttributes,
-        resource: ResourceAttributes
+        resource: ResourceAttributes,
+        action?: string
     ): Promise<OPAResult> {
-        const input: OPAInput = {
-            user: {
-                uniqueIdentifier: user.uniqueIdentifier,
-                countryOfAffiliation: user.countryOfAffiliation,
-                clearance: user.clearance,
-                coiTags: user.coiTags || [],
-                caveats: user.caveats || [],
-                lacvCode: user.lacvCode
-            },
-            resource: {
-                path: resource.path,
-                method: resource.method,
-                classification: resource.classification,
-                releasableTo: resource.releasableTo,
-                coiTags: resource.coiTags,
-                lacvCode: resource.lacvCode
-            }
-        };
+        const startTime = Date.now();
 
         try {
-            const response = await this.axios.post('/v1/data/nato/document/allow', { input });
+            const response = await this.axios.post('/v1/data/dive25/abac', {
+                input: {
+                    user,
+                    resource,
+                    action
+                }
+            });
+
+            const result = response.data.result;
+
+            await this.metrics.recordOperationMetrics('opa_evaluation', {
+                duration: Date.now() - startTime,
+                decision: result.allow,
+                userClearance: user.clearance,
+                resourceClearance: resource.clearance
+            });
+
             return {
-                allow: response.data.result.allow === true,
-                reason: response.data.result.reason
+                allow: result.allow === true,
+                reason: result.reason
             };
+
         } catch (error) {
-            this.logger.error('OPA evaluation failed', { error, input });
+            this.logger.error('OPA evaluation error:', error);
+            await this.metrics.recordOperationError('opa_evaluation', error);
+
             return {
                 allow: false,
-                reason: 'Access control evaluation failed'
+                reason: 'Policy evaluation error'
             };
         }
-    }
-
-    private async queryPolicy(policyPath: string, input: OPAInput): Promise<OPAResult> {
-        const response = await this.axios.post(
-            `/v1/data/${policyPath}`,
-            { input },
-            {
-                timeout: 5000 // 5 second timeout
-            }
-        );
-
-        if (response.status !== 200) {
-            throw new Error(`OPA returned status ${response.status}`);
-        }
-
-        const result = response.data.result;
-
-        return {
-            allow: result.allow === true,
-            error: result.error || undefined
-        };
-    }
-
-    private recordPolicyDecision(
-        policy: string,
-        allowed: boolean,
-        input: OPAInput
-    ): void {
-        this.metrics.recordMetric('opa_decision', {
-            policy,
-            allowed: allowed ? 1 : 0,
-            country: input.user.countryOfAffiliation,
-            clearance: input.user.clearance,
-            classification: input.resource.classification
-        });
-
-        this.logger.info('Policy decision', {
-            policy,
-            allowed,
-            country: input.user.countryOfAffiliation,
-            resource: {
-                classification: input.resource.classification,
-                releasableTo: input.resource.releasableTo,
-                coiTags: input.resource.coiTags
-            }
-        });
     }
 
     public async validateAttributes(
@@ -182,6 +128,7 @@ export class OPAService {
                 warnings: result.warnings || [],
                 missingAttributes: result.missing_attrs
             };
+
         } catch (error) {
             this.logger.error('Attribute validation error:', error);
             return {
@@ -233,11 +180,12 @@ export class OPAService {
                 allow: response.data.result.allow === true,
                 reason: response.data.result.reason
             };
+
         } catch (error) {
             this.logger.error('Update access evaluation error:', error);
             return {
                 allow: false,
-                reason: 'Update access evaluation failed'
+                reason: 'Update access evaluation error'
             };
         }
     }
@@ -253,26 +201,29 @@ export class OPAService {
     }
 
     public async evaluateClearanceModification(
-        user: UserAttributes,
-        fromLevel: ClearanceLevel,
-        toLevel: ClearanceLevel
+        userAttributes: UserAttributes,
+        from: ClearanceLevel,
+        to: ClearanceLevel
     ): Promise<OPAResult> {
         try {
-            const response = await this.axios.post('/v1/data/nato/clearance/modify', {
+            const response = await this.axios.post('/v1/data/dive25/clearance_modification', {
                 input: {
-                    user,
-                    modification: {
-                        from: fromLevel,
-                        to: toLevel
-                    }
+                    user: userAttributes,
+                    from,
+                    to
                 }
             });
-            return response.data.result;
+
+            return {
+                allow: response.data.result.allow === true,
+                reason: response.data.result.reason
+            };
+
         } catch (error) {
-            this.logger.error('Clearance modification evaluation failed', { error, user, fromLevel, toLevel });
+            this.logger.error('Clearance modification evaluation error:', error);
             return {
                 allow: false,
-                reason: 'Clearance modification evaluation failed'
+                reason: 'Clearance modification evaluation error'
             };
         }
     }
@@ -301,11 +252,6 @@ export class OPAService {
                 reason: 'Releasability modification evaluation error'
             };
         }
-    }
-
-    public async evaluateCoiModification(userAttributes: UserAttributes, changes: any): Promise<OPAResult> {
-        // Implementation needed
-        throw new Error('Method not implemented');
     }
 
     private handleAxiosError(error: any): never {

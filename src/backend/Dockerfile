@@ -2,26 +2,22 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Install dependencies
+# Copy package files and install all dependencies (including dev dependencies) needed for building
 COPY package*.json ./
-RUN npm ci
+RUN npm install
 
-# Copy source code
+# Copy the rest of the source code
 COPY . .
 
-# Build TypeScript
+# Build the project
 RUN npm run build
 
-# Create non-root user
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
-USER appuser
+# Diagnostic: list contents of /app/dist to verify build output
+RUN ls -la /app/dist
 
-# Expose port
-EXPOSE 3000
+# Remove dev dependencies to slim down the production image
+RUN npm prune --production
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
+EXPOSE 8080
 
-# Start application
-CMD ["npm", "start"]
+CMD ["node", "dist/app.js"]

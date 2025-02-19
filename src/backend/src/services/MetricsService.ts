@@ -8,12 +8,8 @@ import {
     MetricValue,
     HealthStatus,
     ClearanceLevel,
-    UserAttributes,
-    MetricLabels
+    UserAttributes
 } from '../types';
-import { Registry, Counter, Gauge, Histogram } from 'prom-client';
-import { register } from 'prom-client';
-import { HealthCheckResult } from './HealthCheckService';
 
 /**
  * Service responsible for collecting, storing, and analyzing system metrics
@@ -42,11 +38,6 @@ export class MetricsService {
         partnerHealth: prometheus.Gauge;
         partnerResponseTime: prometheus.Histogram;
         databaseStatus: prometheus.Counter;
-        documentAccess: Counter;
-        documentOperations: Counter;
-        securityValidations: Counter;
-        operationDuration: Histogram;
-        activeUsers: Gauge;
     };
 
     // Metric retention configuration for compliance
@@ -56,38 +47,6 @@ export class MetricsService {
         DAILY: 86400 * 90,    // 90 days for daily aggregates
         MONTHLY: 86400 * 365  // 1 year for monthly aggregates
     };
-
-    // Authentication Metrics
-    private readonly authAttempts: Counter;
-    private readonly authFailures: Counter;
-    private readonly authDuration: Histogram;
-
-    // Policy Evaluation Metrics
-    private readonly policyEvaluations: Counter;
-    private readonly policyDuration: Histogram;
-    private readonly policyFailures: Counter;
-
-    // Partner-Specific Metrics
-    private readonly partnerAccess: Counter;
-    private readonly partnerDenials: Counter;
-    private readonly activePartnerSessions: Gauge;
-
-    // Classification Level Metrics
-    private readonly classificationAccess: Counter;
-    private readonly classificationDenials: Counter;
-
-    // COI Metrics
-    private readonly coiAccess: Counter;
-    private readonly coiDenials: Counter;
-    private readonly activeCoiUsers: Gauge;
-
-    // LACV Metrics
-    private readonly lacvChecks: Counter;
-    private readonly lacvDenials: Counter;
-
-    private readonly responseTime: Histogram;
-    private readonly healthStatus: Gauge;
-    private readonly lastCheckTime: Gauge;
 
     private constructor() {
         this.logger = LoggerService.getInstance();
@@ -99,161 +58,6 @@ export class MetricsService {
         });
         this.metrics = this.initializeMetrics();
         this.initializeErrorHandling();
-
-        // Authentication Metrics
-        this.authAttempts = new Counter({
-            name: 'dive25_auth_attempts_total',
-            help: 'Total number of authentication attempts',
-            labelNames: ['partner_type', 'country']
-        });
-
-        this.authFailures = new Counter({
-            name: 'dive25_auth_failures_total',
-            help: 'Total number of authentication failures',
-            labelNames: ['partner_type', 'country', 'reason']
-        });
-
-        this.authDuration = new Histogram({
-            name: 'dive25_auth_duration_seconds',
-            help: 'Authentication duration in seconds',
-            labelNames: ['partner_type'],
-            buckets: [0.1, 0.5, 1, 2, 5]
-        });
-
-        // Policy Evaluation Metrics
-        this.policyEvaluations = new Counter({
-            name: 'dive25_policy_evaluations_total',
-            help: 'Total number of policy evaluations',
-            labelNames: ['policy', 'partner_type', 'result']
-        });
-
-        this.policyDuration = new Histogram({
-            name: 'dive25_policy_duration_seconds',
-            help: 'Policy evaluation duration in seconds',
-            labelNames: ['policy'],
-            buckets: [0.01, 0.05, 0.1, 0.5, 1]
-        });
-
-        this.policyFailures = new Counter({
-            name: 'dive25_policy_failures_total',
-            help: 'Total number of policy evaluation failures',
-            labelNames: ['policy', 'reason']
-        });
-
-        // Partner Metrics
-        this.partnerAccess = new Counter({
-            name: 'dive25_partner_access_total',
-            help: 'Total number of partner access attempts',
-            labelNames: ['partner_type', 'country', 'classification']
-        });
-
-        this.partnerDenials = new Counter({
-            name: 'dive25_partner_denials_total',
-            help: 'Total number of partner access denials',
-            labelNames: ['partner_type', 'country', 'reason']
-        });
-
-        this.activePartnerSessions = new Gauge({
-            name: 'dive25_active_partner_sessions',
-            help: 'Current number of active partner sessions',
-            labelNames: ['partner_type', 'country']
-        });
-
-        // Classification Metrics
-        this.classificationAccess = new Counter({
-            name: 'dive25_classification_access_total',
-            help: 'Total number of classification level accesses',
-            labelNames: ['level', 'partner_type']
-        });
-
-        this.classificationDenials = new Counter({
-            name: 'dive25_classification_denials_total',
-            help: 'Total number of classification level denials',
-            labelNames: ['requested_level', 'user_level', 'partner_type']
-        });
-
-        // COI Metrics
-        this.coiAccess = new Counter({
-            name: 'dive25_coi_access_total',
-            help: 'Total number of COI access attempts',
-            labelNames: ['coi_id', 'partner_type']
-        });
-
-        this.coiDenials = new Counter({
-            name: 'dive25_coi_denials_total',
-            help: 'Total number of COI access denials',
-            labelNames: ['coi_id', 'partner_type', 'reason']
-        });
-
-        this.activeCoiUsers = new Gauge({
-            name: 'dive25_active_coi_users',
-            help: 'Current number of active users per COI',
-            labelNames: ['coi_id', 'partner_type']
-        });
-
-        // LACV Metrics
-        this.lacvChecks = new Counter({
-            name: 'dive25_lacv_checks_total',
-            help: 'Total number of LACV code checks',
-            labelNames: ['code', 'partner_type']
-        });
-
-        this.lacvDenials = new Counter({
-            name: 'dive25_lacv_denials_total',
-            help: 'Total number of LACV code denials',
-            labelNames: ['code', 'partner_type', 'reason']
-        });
-
-        // New metrics
-        this.responseTime = new Histogram({
-            name: 'partner_response_time_seconds',
-            help: 'Response time of partner endpoints in seconds',
-            labelNames: ['partner_id', 'partner_name'],
-            buckets: [0.1, 0.3, 0.5, 0.7, 1, 2, 5]
-        });
-
-        this.healthStatus = new Gauge({
-            name: 'partner_health_status',
-            help: 'Current health status of partner (0=down, 1=degraded, 2=healthy)',
-            labelNames: ['partner_id', 'partner_name']
-        });
-
-        this.lastCheckTime = new Gauge({
-            name: 'partner_last_check_timestamp',
-            help: 'Timestamp of last health check',
-            labelNames: ['partner_id', 'partner_name']
-        });
-
-        this.metrics.documentAccess = new Counter({
-            name: 'document_access_total',
-            help: 'Total number of document access attempts',
-            labelNames: ['status', 'classification', 'country']
-        });
-
-        this.metrics.documentOperations = new Counter({
-            name: 'document_operations_total',
-            help: 'Total number of document operations',
-            labelNames: ['operation', 'status', 'classification']
-        });
-
-        this.metrics.securityValidations = new Counter({
-            name: 'security_validations_total',
-            help: 'Total number of security validations',
-            labelNames: ['type', 'status']
-        });
-
-        this.metrics.operationDuration = new Histogram({
-            name: 'operation_duration_seconds',
-            help: 'Duration of operations in seconds',
-            labelNames: ['operation'],
-            buckets: [0.1, 0.5, 1, 2, 5]
-        });
-
-        this.metrics.activeUsers = new Gauge({
-            name: 'active_users',
-            help: 'Number of currently active users',
-            labelNames: ['clearance_level']
-        });
     }
 
     private initializeErrorHandling(): void {
@@ -565,79 +369,6 @@ export class MetricsService {
             this.logger.error('Error calculating average response time:', error);
             return 0;
         }
-    }
-
-    public recordAuthAttempt(partnerType: string, country: string): void {
-        this.authAttempts.inc({ partner_type: partnerType, country });
-    }
-
-    public recordAuthFailure(partnerType: string, country: string, reason: string): void {
-        this.authFailures.inc({ partner_type: partnerType, country, reason });
-    }
-
-    public recordPolicyDecision(labels: {
-        policy: string;
-        partnerType: string;
-        result: boolean;
-        classification?: string;
-        coiId?: string;
-        lacvCode?: string;
-    }): void {
-        this.policyEvaluations.inc({
-            policy: labels.policy,
-            partner_type: labels.partnerType,
-            result: labels.result ? 'allow' : 'deny'
-        });
-
-        if (labels.classification) {
-            this.classificationAccess.inc({
-                level: labels.classification,
-                partner_type: labels.partnerType
-            });
-        }
-
-        if (labels.coiId) {
-            this.coiAccess.inc({
-                coi_id: labels.coiId,
-                partner_type: labels.partnerType
-            });
-        }
-
-        if (labels.lacvCode) {
-            this.lacvChecks.inc({
-                code: labels.lacvCode,
-                partner_type: labels.partnerType
-            });
-        }
-    }
-
-    public updateActivePartnerSessions(partnerType: string, country: string, count: number): void {
-        this.activePartnerSessions.set({ partner_type: partnerType, country }, count);
-    }
-
-    recordHealthCheck(partnerId: string, result: HealthCheckResult) {
-        const statusValue =
-            result.status === 'healthy' ? 2 :
-                result.status === 'degraded' ? 1 : 0;
-
-        this.responseTime.observe(
-            { partner_id: partnerId },
-            result.responseTime / 1000
-        );
-
-        this.healthStatus.set(
-            { partner_id: partnerId },
-            statusValue
-        );
-
-        this.lastCheckTime.set(
-            { partner_id: partnerId },
-            result.lastChecked.getTime() / 1000
-        );
-    }
-
-    async getMetrics(): Promise<string> {
-        return register.metrics();
     }
 }
 
