@@ -208,6 +208,50 @@ cleanup_networks() {
     fi
 }
 
+# Function to setup environment
+setup_environment() {
+    local env=$1
+    
+    # Generate secure passwords if they don't exist
+    if [ -z "$MONGO_ROOT_USER" ] || [ -z "$MONGO_ROOT_PASSWORD" ]; then
+        export MONGO_ROOT_USER="admin"
+        export MONGO_ROOT_PASSWORD=$(openssl rand -base64 32 | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)
+        
+        # Save to .env file
+        echo "MONGO_ROOT_USER=$MONGO_ROOT_USER" > "${PROJECT_ROOT}/src/backend/.env.${env}"
+        echo "MONGO_ROOT_PASSWORD=$MONGO_ROOT_PASSWORD" >> "${PROJECT_ROOT}/src/backend/.env.${env}"
+        
+        echo "Created new MongoDB credentials"
+    fi
+    
+    # Create storage directory
+    mkdir -p "${PROJECT_ROOT}/src/backend/storage"
+    chmod 777 "${PROJECT_ROOT}/src/backend/storage"
+}
+
+# Add this function to initialize MongoDB
+initialize_mongodb() {
+    echo "Initializing MongoDB..."
+    
+    # Wait for MongoDB to be ready
+    until docker exec dive25-mongodb-1 mongosh --eval "db.runCommand('ping').ok" --quiet; do
+        echo "Waiting for MongoDB to be ready..."
+        sleep 2
+    done
+    
+    # Create database and user
+    docker exec dive25-mongodb-1 mongosh --eval "
+        use dive25;
+        db.createUser({
+            user: '${MONGO_ROOT_USER}',
+            pwd: '${MONGO_ROOT_PASSWORD}',
+            roles: ['readWrite', 'dbAdmin']
+        });
+    "
+    
+    echo "MongoDB initialized successfully"
+}
+
 # Main script
 echo -e "${GREEN}DIVE25 Deployment Script${NC}"
 echo "1) Development (Local development environment)"
@@ -265,17 +309,35 @@ docker network create dive25_network || true
 
 # Then update the service start commands
 echo "Starting MongoDB..."
-docker compose -p $PROJECT_NAME \
-    -f "${PROJECT_ROOT}/src/backend/docker-compose.yml" \
-    -f "${PROJECT_ROOT}/src/backend/docker-compose.${env}.yml" \
+cd "${PROJECT_ROOT}/src/backend" && \
+DOCKER_DEFAULT_PLATFORM=$PLATFORM docker compose \
+    -p dive25 \
+    -f docker-compose.yml \
+    -f docker-compose.${env}.yml \
     up -d mongodb
 
-wait_for_service "MongoDB" 27017
+# Wait for MongoDB and initialize
+sleep 5
+initialize_mongodb
 
 echo "Starting remaining services..."
-docker compose -p $PROJECT_NAME \
-    -f "${PROJECT_ROOT}/src/backend/docker-compose.yml" \
-    -f "${PROJECT_ROOT}/src/backend/docker-compose.${env}.yml" \
+cd "${PROJECT_ROOT}/src/backend" && \
+DOCKER_DEFAULT_PLATFORM=$PLATFORM docker compose \
+    -p dive25 \
+    -f docker-compose.yml \
+    -f docker-compose.${env}.yml \
     up -d --remove-orphans
 
-echo -e "${GREEN}All services started!${NC}" 
+# Wait for all services to be healthy
+echo "Waiting for services to be healthy..."
+sleep 10
+
+echo -e "${GREEN}All services started!${NC}"
+
+# Add this before starting services (after environment selection)
+setup_environment $env
+
+# Load environment variables
+if [ -f "${PROJECT_ROOT}/src/backend/.env.${env}" ]; then
+    export $(cat "${PROJECT_ROOT}/src/backend/.env.${env}" | grep -v '^#' | xargs)
+fi 

@@ -1,4 +1,33 @@
 services:
+  
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "6969:6969"
+    environment:
+      - NODE_ENV=${NODE_ENV}
+      - MONGODB_URI=mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@mongodb:27017/dive25?authSource=admin
+      - STORAGE_PATH=/app/storage
+      - DB_HOST=mongodb
+      - DB_PORT=27017
+      - DB_NAME=dive25
+      - DB_USER=${MONGO_ROOT_USER}
+      - DB_PASSWORD=${MONGO_ROOT_PASSWORD}
+    volumes:
+      - ./storage:/app/storage
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:6969/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   app:
     build: .
     ports:
@@ -29,13 +58,14 @@ services:
     environment:
       - MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USER}
       - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+      - MONGO_INITDB_DATABASE=dive25
     healthcheck:
-      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
-      interval: 30s
-      timeout: 3s
+      test: mongosh --eval 'db.runCommand("ping").ok' mongodb:27017/test --quiet
+      interval: 10s
+      timeout: 5s
       retries: 3
-      start_period: 30s
-    restart: unless-stopped
+      start_period: 10s
+    command: ["mongod", "--bind_ip_all"]
 
   redis:
     image: redis:alpine
