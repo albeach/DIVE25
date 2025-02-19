@@ -2,22 +2,30 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Copy package files and install all dependencies (including dev dependencies) needed for building
+# Copy package files and install dependencies
 COPY package*.json ./
-RUN npm install
+RUN npm ci
 
-# Copy the rest of the source code
+# Copy source code
 COPY . .
 
-# Build the project
+# Build TypeScript
 RUN npm run build
 
-# Diagnostic: list contents of /app/dist to verify build output
-RUN ls -la /app/dist
+# Copy and set up wait-for-it script BEFORE changing user
+COPY wait-for-it.sh /wait-for-it.sh
+RUN chmod +x /wait-for-it.sh
 
-# Remove dev dependencies to slim down the production image
-RUN npm prune --production
+# Create non-root user and switch to it
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+USER appuser
 
-EXPOSE 8080
+# Expose port
+EXPOSE 6969
 
-CMD ["node", "dist/app.js"]
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:6969/api/health || exit 1
+
+# Start application
+CMD ["/wait-for-it.sh", "mongodb:27017", "--", "npm", "start"]

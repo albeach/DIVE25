@@ -37,7 +37,8 @@ export class DatabaseService {
         this.logger = LoggerService.getInstance();
         this.metrics = MetricsService.getInstance();
 
-        this.client = new MongoClient(config.mongo.uri, {
+        const uri = process.env.MONGODB_URI || 'mongodb://mongodb:27017/dive25';
+        this.client = new MongoClient(uri, {
             maxPoolSize: 50,
             minPoolSize: 10,
             maxConnecting: 10,
@@ -58,18 +59,18 @@ export class DatabaseService {
     public async connect(): Promise<void> {
         try {
             await this.client.connect();
-            this.db = this.client.db('dive25');
+            this.db = this.client.db();
             this.collection = this.db.collection('documents');
 
             await this.createIndexes();
             await this.validateCollections();
 
-            this.logger.info('Database connection established');
+            this.logger.info('Connected to MongoDB');
 
         } catch (error) {
             this.logger.error('MongoDB connection error:', error);
             this.metrics.recordOperationError('db_connection', error);
-            throw this.createDatabaseError('Failed to connect to database', error);
+            throw error;
         }
     }
 
@@ -134,7 +135,7 @@ export class DatabaseService {
         }
     }
 
-    public async getDb(): Promise<Db> {
+    public getDb(): Db {
         if (!this.db) {
             throw new Error('Database not connected');
         }

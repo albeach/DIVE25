@@ -1,9 +1,0 @@
-version: '3.8'
-services:
-  nginx:
-    volumes:
-      - /etc/nginx/certs:/etc/nginx/certs:ro
-      - ../../certificates/prod:/certificates/prod:ro  # Updated path
-    environment:
-      - SSL_CERT_PATH=/etc/nginx/certs/fullchain.pem
-      - SSL_KEY_PATH=/etc/nginx/certs/privkey.pem 

@@ -1,0 +1,48 @@
+version: '3.8'
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8081:8081"
+      - "8443:8443"
+    volumes:
+      - /etc/nginx/certs:/etc/nginx/certs:ro
+      - ../../certificates/prod:/certificates/prod:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+    environment:
+      - SSL_CERT_PATH=/etc/nginx/certs/fullchain.pem
+      - SSL_KEY_PATH=/etc/nginx/certs/privkey.pem
+    depends_on:
+      - api
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - NODE_ENV=staging
+    env_file:
+      - .env.staging
+    ports:
+      - "3000:3000"
+    depends_on:
+      - mongodb
+      - redis
+
+  mongodb:
+    image: mongo:latest
+    volumes:
+      - mongodb_data:/data/db
+    ports:
+      - "27017:27017"
+
+  redis:
+    image: redis:alpine
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+
+volumes:
+  mongodb_data:
+  redis_data: 
